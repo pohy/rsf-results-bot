@@ -1,6 +1,20 @@
 import { fetch, Response } from 'undici';
 import { CookieJar, jarToHeader, updateJarFromResponse } from './cookies.js';
 
+// Site serves HTML without a charset declaration; bytes are windows-1250
+// (Central European). Decoding as UTF-8 produces U+FFFD for Hungarian/Czech
+// characters (e.g. "Karankamäki" → "Karankam�ki"). HTML-only — guarded so
+// accidental use on a JSON/other endpoint fails loud instead of corrupting.
+const HTML_DECODER = new TextDecoder('windows-1250');
+
+export async function readHtml(res: Response): Promise<string> {
+  const ct = res.headers.get('content-type') ?? '';
+  if (!ct.includes('text/html')) {
+    throw new Error(`readHtml: expected text/html, got "${ct}"`);
+  }
+  return HTML_DECODER.decode(await res.arrayBuffer());
+}
+
 export const BASE = 'https://www.rallysimfans.hu';
 
 const UA =

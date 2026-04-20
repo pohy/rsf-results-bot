@@ -1,5 +1,5 @@
 import { CookieJar } from './cookies.js';
-import { BASE, rsfFetch } from './client.js';
+import { BASE, rsfFetch, readHtml } from './client.js';
 import { Credentials, login } from './auth.js';
 import { loadJar, saveJar } from './storage.js';
 
@@ -17,7 +17,7 @@ export async function verifySession(
   userId: number,
 ): Promise<VerifyResult> {
   const { jar: nextJar, res } = await rsfFetch(jar, PROFILE_URL(userId));
-  const html = await res.text();
+  const html = await readHtml(res);
   const loggedIn = html.includes('Log out') && html.includes('Edit account');
   return {
     jar: nextJar,

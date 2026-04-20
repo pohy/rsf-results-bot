@@ -1,6 +1,6 @@
 import * as cheerio from 'cheerio';
 import { CookieJar, createJar } from './cookies.js';
-import { BASE, rsfFetch } from './client.js';
+import { BASE, rsfFetch, readHtml } from './client.js';
 
 const LOGIN_PAGE = `${BASE}/rbr/account2.php?centerbox=bejelentkezes2`;
 const LOGIN_POST = `${BASE}/rbr/account2_login.php`;
@@ -12,7 +12,7 @@ export interface LoginTokenResult {
 
 export async function fetchLoginToken(jar: CookieJar): Promise<LoginTokenResult> {
   const { jar: nextJar, res } = await rsfFetch(jar, LOGIN_PAGE);
-  const html = await res.text();
+  const html = await readHtml(res);
   const $ = cheerio.load(html);
   const token = $('input[name="token_account_login"]').attr('value');
   if (!token) {
