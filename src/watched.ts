@@ -49,6 +49,29 @@ export async function removeWatched(db: Kysely<Database>, rallyId: number): Prom
   return (res.numDeletedRows ?? 0n) > 0n;
 }
 
+// Refresh deadline_at for the given rallies (keyed by rally_id). Only rows that
+// are actually watched are touched; ids not in watched_rally are ignored. Run
+// per cron pass from the rally list so the poller's "finished" check stays
+// current. Returns the number of watched rows updated.
+export async function updateDeadlines(
+  db: Kysely<Database>,
+  deadlines: ReadonlyArray<{ rallyId: number; deadlineAt: number }>,
+): Promise<number> {
+  if (deadlines.length === 0) return 0;
+  return db.transaction().execute(async (trx) => {
+    let updated = 0;
+    for (const d of deadlines) {
+      const res = await trx
+        .updateTable("watched_rally")
+        .set({ deadline_at: d.deadlineAt })
+        .where("rally_id", "=", d.rallyId)
+        .executeTakeFirst();
+      updated += Number(res.numUpdatedRows ?? 0n);
+    }
+    return updated;
+  });
+}
+
 // All watched rallies, oldest first. Only the fields shown in /watch list.
 export async function listWatched(db: Kysely<Database>): Promise<WatchedRally[]> {
   const rows = await db

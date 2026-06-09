@@ -4,9 +4,11 @@ import { backendDescription, makeDb } from "./db/index.js";
 import type { Database } from "./db/schema.js";
 import { type CronEnv, loadCronEnv } from "./env.js";
 import { persistStage } from "./persist.js";
+import { selectPollable } from "./poll.js";
+import { fetchRallyList } from "./rallies.js";
 import { fetchAllStages, type RallyKey } from "./results.js";
 import { ensureSession } from "./session.js";
-import { listWatched } from "./watched.js";
+import { listWatched, updateDeadlines } from "./watched.js";
 
 // Periodic scraper. Each pass: re-read the watched_rally table (so /watch
 // add/remove from the Discord bot take effect without a restart), then scrape
@@ -32,8 +34,8 @@ interface PassComment {
 // seen for the first time this pass. A single rally failing is logged and
 // skipped — it doesn't abort the rest of the pass.
 async function runPass(db: Kysely<Database>, env: CronEnv): Promise<PassComment[]> {
-  const rallies = await listWatched(db);
-  if (rallies.length === 0) {
+  const watched = await listWatched(db);
+  if (watched.length === 0) {
     console.log("no watched rallies");
     return [];
   }
@@ -45,6 +47,28 @@ async function runPass(db: Kysely<Database>, env: CronEnv): Promise<PassComment[
   });
   let jar = session.jar;
   const now = Date.now();
+
+  // Refresh close times from the rally list so finished rallies can be skipped.
+  // One fetch covers every rally. A failure here just means we poll on with the
+  // deadlines already stored, never that we wrongly skip a rally.
+  try {
+    const { jar: nextJar, rallies: metas } = await fetchRallyList(jar, now);
+    jar = nextJar;
+    const updated = await updateDeadlines(db, metas);
+    console.log(`synced deadlines: ${updated}/${watched.length} watched matched the rally list`);
+  } catch (err) {
+    console.error("deadline sync failed; polling with stored deadlines:", err);
+  }
+
+  // Skip rallies that have closed and already had a full scrape after closing —
+  // no new results or comments can land, so there's nothing left to poll.
+  const rallies = await selectPollable(db, now);
+  const skipped = watched.length - rallies.length;
+  if (skipped > 0) {
+    console.log(`skipping ${skipped} finished rally(ies) (closed, comments parsed)`);
+  }
+  if (rallies.length === 0) return [];
+
   const collected: PassComment[] = [];
 
   for (let i = 0; i < rallies.length; i++) {

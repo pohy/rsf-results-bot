@@ -32,6 +32,10 @@ export interface WatchedRallyTable {
   name: string;
   added_by: string;
   added_at: number;
+  // Epoch-ms close time scraped from the rally list (Budapest-local). Null until
+  // the cron first sees the rally on the list; a null deadline means "keep
+  // polling" — the poller can't tell it's finished. See poll.ts / cron.ts.
+  deadline_at: number | null;
 }
 
 export interface Database {
