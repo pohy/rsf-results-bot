@@ -1,6 +1,6 @@
-import * as cheerio from 'cheerio';
-import { CookieJar } from './cookies.js';
-import { BASE, rsfFetch, readHtml } from './client.js';
+import * as cheerio from "cheerio";
+import { BASE, readHtml, rsfFetch } from "./client.js";
+import type { CookieJar } from "./cookies.js";
 
 export interface StageRow {
   position: number;
@@ -26,9 +26,9 @@ const stageUrl = (k: StageKey): string =>
 
 function parseTitle($: cheerio.CheerioAPI): string | null {
   // Header row inside the left results table: <tr class="fejlec2">...<b>TITLE times:</b>...
-  const raw = $('table.rally_results_stres_left tr.fejlec2 b').first().text().trim();
+  const raw = $("table.rally_results_stres_left tr.fejlec2 b").first().text().trim();
   if (!raw) return null;
-  return raw.replace(/\s*times:\s*$/i, '').trim();
+  return raw.replace(/\s*times:\s*$/i, "").trim();
 }
 
 // Tip('...') uses a single-quoted JS string literal. Match the body honoring
@@ -39,23 +39,23 @@ const TIP_RE = /Tip\('((?:\\.|[^'\\])*)'\)/;
 function extractTip(onmouseover: string): string | null {
   const m = onmouseover.match(TIP_RE);
   if (!m) return null;
-  return m[1].replace(/\\(.)/g, '$1');
+  return m[1].replace(/\\(.)/g, "$1") || null;
 }
 
 function parseRows($: cheerio.CheerioAPI): StageRow[] {
-  const rows = $('tr.paros, tr.paratlan').filter(
-    (_, el) => $(el).find('td.stage_results_poz').length > 0,
+  const rows = $("tr.paros, tr.paratlan").filter(
+    (_, el) => $(el).find("td.stage_results_poz").length > 0,
   );
 
   const out: StageRow[] = [];
   rows.each((_, el) => {
     const $tr = $(el);
-    const position = Number($tr.find('td.stage_results_poz').text().trim());
-    const $nameTd = $tr.find('td.stage_results_name');
-    const href = $nameTd.find('a').attr('href') ?? '';
+    const position = Number($tr.find("td.stage_results_poz").text().trim());
+    const $nameTd = $tr.find("td.stage_results_name");
+    const href = $nameTd.find("a").attr("href") ?? "";
     const userId = Number(href.match(/user_stats=(\d+)/)?.[1]);
-    const nickname = $nameTd.find('a > samp b').first().text().trim();
-    const comment = extractTip($tr.attr('onmouseover') ?? '');
+    const nickname = $nameTd.find("a > samp b").first().text().trim();
+    const comment = extractTip($tr.attr("onmouseover") ?? "");
 
     if (!Number.isFinite(position) || !Number.isFinite(userId) || !nickname) {
       return;
@@ -85,10 +85,7 @@ export interface FetchStageResult {
   stage: StageResults;
 }
 
-export async function fetchStageResults(
-  jar: CookieJar,
-  key: StageKey,
-): Promise<FetchStageResult> {
+export async function fetchStageResults(jar: CookieJar, key: StageKey): Promise<FetchStageResult> {
   const { jar: nextJar, res } = await rsfFetch(jar, stageUrl(key));
   if (res.status !== 200) {
     throw new Error(`stage results HTTP ${res.status} for ${JSON.stringify(key)}`);
@@ -138,10 +135,12 @@ async function fetchStageHtmlWithRetry(
       return { jar: nextJar, html };
     }
     if (res.status === 429 && attempt < maxRetries) {
-      const retryAfter = Number(res.headers.get('retry-after'));
+      const retryAfter = Number(res.headers.get("retry-after"));
       const wait = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : backoff;
       res.body?.cancel().catch(() => {});
-      console.warn(`  429 on stage ${key.stageNo}, waiting ${wait}ms (attempt ${attempt + 1}/${maxRetries})`);
+      console.warn(
+        `  429 on stage ${key.stageNo}, waiting ${wait}ms (attempt ${attempt + 1}/${maxRetries})`,
+      );
       await sleep(wait);
       backoff *= 2;
       currentJar = nextJar;
@@ -167,7 +166,10 @@ export async function fetchAllStages(
   }
 
   const stages: StageEntry[] = [];
-  const firstEntry: StageEntry = { stageNo: 1, ...parseStageResults(first.html) };
+  const firstEntry: StageEntry = {
+    stageNo: 1,
+    ...parseStageResults(first.html),
+  };
   stages.push(firstEntry);
   opts.onStage?.(firstEntry);
 

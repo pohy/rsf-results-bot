@@ -1,6 +1,6 @@
-import * as cheerio from 'cheerio';
-import { CookieJar, createJar } from './cookies.js';
-import { BASE, rsfFetch, readHtml } from './client.js';
+import * as cheerio from "cheerio";
+import { BASE, readHtml, rsfFetch } from "./client.js";
+import { type CookieJar, createJar } from "./cookies.js";
 
 const LOGIN_PAGE = `${BASE}/rbr/account2.php?centerbox=bejelentkezes2`;
 const LOGIN_POST = `${BASE}/rbr/account2_login.php`;
@@ -14,9 +14,9 @@ export async function fetchLoginToken(jar: CookieJar): Promise<LoginTokenResult>
   const { jar: nextJar, res } = await rsfFetch(jar, LOGIN_PAGE);
   const html = await readHtml(res);
   const $ = cheerio.load(html);
-  const token = $('input[name="token_account_login"]').attr('value');
+  const token = $('input[name="token_account_login"]').attr("value");
   if (!token) {
-    throw new Error('token_account_login not found on login page');
+    throw new Error("token_account_login not found on login page");
   }
   return { jar: nextJar, token };
 }
@@ -38,17 +38,17 @@ export async function submitLogin(
 ): Promise<LoginResult> {
   const body = new URLSearchParams({
     token_account_login: token,
-    login: 'login',
+    login: "login",
     // Distinct empty form field required by server; not the CSRF token above.
-    token: '',
+    token: "",
     l_username: creds.username,
     l_pass: creds.password,
   });
 
   const { jar: nextJar, res } = await rsfFetch(jar, LOGIN_POST, {
-    method: 'POST',
+    method: "POST",
     headers: {
-      'content-type': 'application/x-www-form-urlencoded',
+      "content-type": "application/x-www-form-urlencoded",
       origin: BASE,
       referer: LOGIN_PAGE,
     },

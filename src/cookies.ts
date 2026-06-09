@@ -13,7 +13,7 @@ export function updateJarFromResponse(jar: CookieJar, headers: Headers): CookieJ
   // already-expired cookie is a deletion.
   for (const raw of headers.getSetCookie()) {
     const cookie = Bun.Cookie.parse(raw);
-    if (cookie.value === '' || cookie.isExpired()) {
+    if (cookie.value === "" || cookie.isExpired()) {
       next.delete(cookie.name);
       continue;
     }
@@ -25,7 +25,7 @@ export function updateJarFromResponse(jar: CookieJar, headers: Headers): CookieJ
 export function jarToHeader(jar: CookieJar): string {
   return Array.from(jar.entries())
     .map(([k, v]) => `${k}=${v}`)
-    .join('; ');
+    .join("; ");
 }
 
 export function jarToJSON(jar: CookieJar): Record<string, string> {

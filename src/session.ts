@@ -1,10 +1,9 @@
-import { CookieJar } from './cookies.js';
-import { BASE, rsfFetch, readHtml } from './client.js';
-import { Credentials, login } from './auth.js';
-import { loadJar, saveJar } from './storage.js';
+import { type Credentials, login } from "./auth.js";
+import { BASE, readHtml, rsfFetch } from "./client.js";
+import type { CookieJar } from "./cookies.js";
+import { loadJar, saveJar } from "./storage.js";
 
-const PROFILE_URL = (userId: number) =>
-  `${BASE}/rbr/usersstats.php?user_stats=${userId}`;
+const PROFILE_URL = (userId: number) => `${BASE}/rbr/usersstats.php?user_stats=${userId}`;
 
 export interface VerifyResult {
   jar: CookieJar;
@@ -12,13 +11,10 @@ export interface VerifyResult {
   status: number;
 }
 
-export async function verifySession(
-  jar: CookieJar,
-  userId: number,
-): Promise<VerifyResult> {
+export async function verifySession(jar: CookieJar, userId: number): Promise<VerifyResult> {
   const { jar: nextJar, res } = await rsfFetch(jar, PROFILE_URL(userId));
   const html = await readHtml(res);
-  const loggedIn = html.includes('Log out') && html.includes('Edit account');
+  const loggedIn = html.includes("Log out") && html.includes("Edit account");
   return {
     jar: nextJar,
     status: res.status,
@@ -34,7 +30,7 @@ export interface SessionConfig {
 
 export interface EnsureResult {
   jar: CookieJar;
-  source: 'disk' | 'login' | 'refreshed';
+  source: "disk" | "login" | "refreshed";
 }
 
 function jarEquals(a: CookieJar, b: CookieJar): boolean {
@@ -47,12 +43,12 @@ function jarEquals(a: CookieJar, b: CookieJar): boolean {
 
 async function freshLogin(
   cfg: SessionConfig,
-  source: 'login' | 'refreshed',
+  source: "login" | "refreshed",
 ): Promise<EnsureResult> {
   const jar = await login(cfg.creds);
   const v = await verifySession(jar, cfg.userId);
   if (!v.loggedIn) {
-    throw new Error('login succeeded but session verify failed');
+    throw new Error("login succeeded but session verify failed");
   }
   await saveJar(cfg.jarPath, v.jar);
   return { jar: v.jar, source };
@@ -61,7 +57,7 @@ async function freshLogin(
 export async function ensureSession(cfg: SessionConfig): Promise<EnsureResult> {
   const existing = await loadJar(cfg.jarPath);
   if (!existing || existing.size === 0) {
-    return freshLogin(cfg, 'login');
+    return freshLogin(cfg, "login");
   }
 
   const v = await verifySession(existing, cfg.userId);
@@ -69,8 +65,8 @@ export async function ensureSession(cfg: SessionConfig): Promise<EnsureResult> {
     if (!jarEquals(existing, v.jar)) {
       await saveJar(cfg.jarPath, v.jar);
     }
-    return { jar: v.jar, source: 'disk' };
+    return { jar: v.jar, source: "disk" };
   }
 
-  return freshLogin(cfg, 'refreshed');
+  return freshLogin(cfg, "refreshed");
 }
