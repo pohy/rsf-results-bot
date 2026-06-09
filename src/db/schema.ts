@@ -4,7 +4,6 @@
 
 export interface StageTable {
   rally_id: number;
-  car_group_id: number;
   stage_no: number;
   title: string | null;
   fetched_at: number;
@@ -12,7 +11,6 @@ export interface StageTable {
 
 export interface ResultTable {
   rally_id: number;
-  car_group_id: number;
   stage_no: number;
   user_id: number;
   nickname: string;
@@ -21,7 +19,7 @@ export interface ResultTable {
   diff_prev_ms: number | null;
   diff_first_ms: number | null;
   comment: string | null;
-  // MVP is insert-only: a (rally, car group, stage, user) row is written once and
+  // MVP is insert-only: a (rally, stage, user) row is written once and
   // never updated, so this is the time it was first scraped. See persist.ts for
   // the deferred "track position/time history across re-scrapes" note.
   first_seen_at: number;

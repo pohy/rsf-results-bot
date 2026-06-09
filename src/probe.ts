@@ -5,14 +5,13 @@ import { persistStage } from "./persist.js";
 import { fetchAllStages, type RallyKey } from "./results.js";
 import { ensureSession } from "./session.js";
 
-// Positional CLI args: rally id and car group id. Defaults apply when the arg is
-// absent (undefined short-circuits .default); a present-but-non-numeric arg fails.
+// Positional CLI arg: rally id. The default applies when the arg is absent
+// (undefined short-circuits .default); a present-but-non-numeric arg fails.
 const positionalId = z.coerce.number().int().positive();
 
 async function main() {
   const env = loadEnv();
   const rallyId = positionalId.default(99639).parse(process.argv[2]); //97248);
-  const carGroupId = positionalId.default(7).parse(process.argv[3]);
 
   const { jar } = await ensureSession({
     creds: { username: env.RSF_USER, password: env.RSF_PASS },
@@ -21,7 +20,7 @@ async function main() {
   });
 
   const db = makeDb(env);
-  const rally: RallyKey = { rallyId, carGroupId };
+  const rally: RallyKey = { rallyId };
   console.log(`persisting to ${backendDescription(env)}`);
   let newComments = 0;
   let failedStages = 0;

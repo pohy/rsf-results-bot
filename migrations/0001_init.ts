@@ -14,17 +14,15 @@ export async function up(db: Kysely<unknown>): Promise<void> {
   await db.schema
     .createTable("stage")
     .addColumn("rally_id", "integer", (c) => c.notNull())
-    .addColumn("car_group_id", "integer", (c) => c.notNull())
     .addColumn("stage_no", "integer", (c) => c.notNull())
     .addColumn("title", "text")
     .addColumn("fetched_at", "bigint", (c) => c.notNull())
-    .addPrimaryKeyConstraint("stage_pk", ["rally_id", "car_group_id", "stage_no"])
+    .addPrimaryKeyConstraint("stage_pk", ["rally_id", "stage_no"])
     .execute();
 
   await db.schema
     .createTable("result")
     .addColumn("rally_id", "integer", (c) => c.notNull())
-    .addColumn("car_group_id", "integer", (c) => c.notNull())
     .addColumn("stage_no", "integer", (c) => c.notNull())
     .addColumn("user_id", "integer", (c) => c.notNull())
     .addColumn("nickname", "text", (c) => c.notNull())
@@ -34,12 +32,12 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     .addColumn("diff_first_ms", "bigint")
     .addColumn("comment", "text")
     .addColumn("first_seen_at", "bigint", (c) => c.notNull())
-    .addPrimaryKeyConstraint("result_pk", ["rally_id", "car_group_id", "stage_no", "user_id"])
+    .addPrimaryKeyConstraint("result_pk", ["rally_id", "stage_no", "user_id"])
     .addForeignKeyConstraint(
       "result_stage_fk",
-      ["rally_id", "car_group_id", "stage_no"],
+      ["rally_id", "stage_no"],
       "stage",
-      ["rally_id", "car_group_id", "stage_no"],
+      ["rally_id", "stage_no"],
       (c) => c.onDelete("cascade"),
     )
     .execute();

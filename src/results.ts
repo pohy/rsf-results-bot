@@ -24,14 +24,14 @@ export type StageResults = z.infer<typeof StageResultsSchema>;
 
 export interface StageKey {
   rallyId: number;
-  carGroupId: number;
   stageNo: number;
 }
 
 const stageUrl = (k: StageKey): string =>
-  // `cg` is the site's query param for car group; we expose it as carGroupId.
+  // Omitting the site's `cg` (car group) param returns the full field: car groups
+  // are nested subsets of the overall results, so no-cg == the union of all groups.
   `${BASE}/rbr/rally_online.php?centerbox=rally_results_stres.php` +
-  `&rally_id=${k.rallyId}&cg=${k.carGroupId}&stage_no=${k.stageNo}`;
+  `&rally_id=${k.rallyId}&stage_no=${k.stageNo}`;
 
 function parseTitle($: cheerio.CheerioAPI): string | null {
   // Header row inside the left results table: <tr class="fejlec2">...<b>TITLE times:</b>...
@@ -110,7 +110,6 @@ export async function fetchStageResults(jar: CookieJar, key: StageKey): Promise<
 
 export interface RallyKey {
   rallyId: number;
-  carGroupId: number;
 }
 
 export const StageEntrySchema = StageResultsSchema.extend({
