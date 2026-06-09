@@ -105,13 +105,14 @@ interface FormattedMessage {
 // Render undelivered comments grouped by rally, then stage:
 //
 //   **Rally name**
-//   > S1
+//   > Granbacken
 //   Driver: *comment*
-//   > S2
+//   > Kuri Bush 2
 //   Other: *comment*
 //
-// Rallies and driver names are ordered by localeCompare; stages by stage number
-// (numeric-aware localeCompare so S2 sorts before S10). Comments are added until
+// The stage header is the scraped stage name, falling back to S<no> when no
+// title was stored. Rallies and driver names are ordered by localeCompare;
+// stages by stage number (numeric-aware so S2 sorts before S10). Comments are added until
 // the next one wouldn't fit under DISCORD_LIMIT, and a rally/stage header is only
 // emitted once a comment beneath it fits — so the message never ends on a
 // dangling header, and the comments left out simply carry to the next pass. If
@@ -151,7 +152,7 @@ function formatMessage(comments: UndeliveredComment[]): FormattedMessage {
         const driverLine = `${d.nickname}: *${d.comment}*`;
         const cand: string[] = [];
         if (!rallyAdded) cand.push(`**${rallyName}**`);
-        if (!stageAdded) cand.push(`> S${stageNo}`);
+        if (!stageAdded) cand.push(`> ${d.stageTitle ?? `S${stageNo}`}`);
         cand.push(driverLine);
         const addText = cand.reduce((n, l) => n + l.length, 0);
 

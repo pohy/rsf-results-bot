@@ -93,6 +93,9 @@ export interface UndeliveredComment {
   stageNo: number;
   userId: number;
   rallyName: string;
+  // Scraped stage name (e.g. "Granbacken", "Power Stage Ouninpohja"), or null
+  // if the stage row predates title scraping; the renderer falls back to S<no>.
+  stageTitle: string | null;
   nickname: string;
   comment: string;
 }
@@ -104,11 +107,17 @@ export async function selectUndelivered(db: Kysely<Database>): Promise<Undeliver
   const rows = await db
     .selectFrom("result")
     .leftJoin("watched_rally", "watched_rally.rally_id", "result.rally_id")
+    .leftJoin("stage", (join) =>
+      join
+        .onRef("stage.rally_id", "=", "result.rally_id")
+        .onRef("stage.stage_no", "=", "result.stage_no"),
+    )
     .select([
       "result.rally_id as rallyId",
       "result.stage_no as stageNo",
       "result.user_id as userId",
       "watched_rally.name as rallyName",
+      "stage.title as stageTitle",
       "result.nickname as nickname",
       "result.comment as comment",
     ])
@@ -122,6 +131,7 @@ export async function selectUndelivered(db: Kysely<Database>): Promise<Undeliver
     stageNo: r.stageNo,
     userId: r.userId,
     rallyName: r.rallyName ?? `Rally ${r.rallyId}`,
+    stageTitle: r.stageTitle,
     nickname: r.nickname,
     // comment is non-null by the WHERE above; the column type is still nullable.
     comment: r.comment as string,
