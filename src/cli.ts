@@ -1,6 +1,9 @@
 import { jarToJSON } from "./cookies.js";
 import { loadEnv } from "./env.js";
+import { makeLogger } from "./logger.js";
 import { ensureSession } from "./session.js";
+
+const logger = makeLogger("cli");
 
 async function main() {
   const env = loadEnv();
@@ -10,11 +13,11 @@ async function main() {
     userId: env.RSF_USER_ID,
     jarPath: env.RSF_AUTH_PATH,
   });
-  console.log("source:", source);
-  console.log("cookies:", jarToJSON(jar));
+  logger.log("source:", source);
+  logger.log("cookies:", jarToJSON(jar));
 }
 
 main().catch((e) => {
-  console.error(e);
+  logger.error(e);
   process.exit(1);
 });

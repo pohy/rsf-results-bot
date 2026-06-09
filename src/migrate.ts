@@ -4,6 +4,9 @@ import { fileURLToPath } from "node:url";
 import { FileMigrationProvider, type MigrationResultSet, Migrator } from "kysely/migration";
 import { backendDescription, makeDb } from "./db/index.js";
 import { loadDbEnv } from "./env.js";
+import { makeLogger } from "./logger.js";
+
+const logger = makeLogger("migrate");
 
 // Migration runner. `bun run src/migrate.ts` applies all pending migrations;
 // `bun run src/migrate.ts down` reverts the last one. Uses makeDb() so it
@@ -24,22 +27,22 @@ async function main() {
   });
 
   const down = process.argv[2] === "down";
-  console.log(`migrating ${backendDescription(env)} (${down ? "down" : "latest"})`);
+  logger.log(`migrating ${backendDescription(env)} (${down ? "down" : "latest"})`);
 
   const { error, results }: MigrationResultSet = down
     ? await migrator.migrateDown()
     : await migrator.migrateToLatest();
 
   for (const r of results ?? []) {
-    console.log(`${r.status}: ${r.migrationName} (${r.direction})`);
+    logger.log(`${r.status}: ${r.migrationName} (${r.direction})`);
   }
   if (!error && (results?.length ?? 0) === 0) {
-    console.log("already up to date — no pending migrations");
+    logger.log("already up to date — no pending migrations");
   }
 
   await db.destroy();
   if (error) {
-    console.error("migration failed:", error);
+    logger.error("migration failed:", error);
     process.exit(1);
   }
 }

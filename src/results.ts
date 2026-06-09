@@ -2,7 +2,10 @@ import * as cheerio from "cheerio";
 import { z } from "zod";
 import { BASE, readHtml, rsfFetch } from "./client.js";
 import { type CookieJar, createJar } from "./cookies.js";
+import { makeLogger } from "./logger.js";
 import { parseTimeMs } from "./time.js";
+
+const logger = makeLogger("results");
 
 // Extract the rally id from any rallysimfans rally URL. The id lives in the
 // `rally_id` query param regardless of which `centerbox` page the URL points at
@@ -194,7 +197,7 @@ async function fetchStageHtmlWithRetry(
       const retryAfter = Number(res.headers.get("retry-after"));
       const wait = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : backoff;
       res.body?.cancel().catch(() => {});
-      console.warn(
+      logger.warn(
         `  429 on stage ${key.stageNo}, waiting ${wait}ms (attempt ${attempt + 1}/${maxRetries})`,
       );
       await sleep(wait);

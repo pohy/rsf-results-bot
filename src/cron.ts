@@ -3,6 +3,7 @@ import type { Kysely } from "kysely";
 import { backendDescription, makeDb } from "./db/index.js";
 import type { Database } from "./db/schema.js";
 import { type CronEnv, loadCronEnv } from "./env.js";
+import { makeLogger } from "./logger.js";
 import {
   markDelivered,
   persistStage,
@@ -25,6 +26,8 @@ import { listWatched, updateDeadlines } from "./watched.js";
 // Set it to a cron expression to self-schedule via Bun.cron (UTC). A pass that
 // overruns into the next tick is skipped, never overlapped.
 
+const logger = makeLogger("cron");
+
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 // Scrape every watched rally once, persisting as we go. New comments are written
@@ -34,7 +37,7 @@ const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
 async function runPass(db: Kysely<Database>, env: CronEnv): Promise<void> {
   const watched = await listWatched(db);
   if (watched.length === 0) {
-    console.log("no watched rallies");
+    logger.log("no watched rallies");
     return;
   }
 
@@ -53,9 +56,9 @@ async function runPass(db: Kysely<Database>, env: CronEnv): Promise<void> {
     const { jar: nextJar, rallies: metas } = await fetchRallyList(jar, now);
     jar = nextJar;
     const updated = await updateDeadlines(db, metas);
-    console.log(`synced deadlines: ${updated}/${watched.length} watched matched the rally list`);
+    logger.log(`synced deadlines: ${updated}/${watched.length} watched matched the rally list`);
   } catch (err) {
-    console.error("deadline sync failed; polling with stored deadlines:", err);
+    logger.error("deadline sync failed; polling with stored deadlines:", err);
   }
 
   // Skip rallies that have closed and already had a full scrape after closing —
@@ -63,7 +66,7 @@ async function runPass(db: Kysely<Database>, env: CronEnv): Promise<void> {
   const rallies = await selectPollable(db, now);
   const skipped = watched.length - rallies.length;
   if (skipped > 0) {
-    console.log(`skipping ${skipped} finished rally(ies) (closed, comments parsed)`);
+    logger.log(`skipping ${skipped} finished rally(ies) (closed, comments parsed)`);
   }
   if (rallies.length === 0) return;
 
@@ -78,9 +81,9 @@ async function runPass(db: Kysely<Database>, env: CronEnv): Promise<void> {
       for (const stage of stages) {
         await persistStage(db, key, stage, now);
       }
-      console.log(`rally ${rally.rallyId} (${rally.name}): ${stages.length} stage(s) scraped`);
+      logger.log(`rally ${rally.rallyId} (${rally.name}): ${stages.length} stage(s) scraped`);
     } catch (err) {
-      console.error(`rally ${rally.rallyId} (${rally.name}) failed:`, err);
+      logger.error(`rally ${rally.rallyId} (${rally.name}) failed:`, err);
     }
     // Polite gap before the next rally; skip it after the last one.
     if (i < rallies.length - 1) await sleep(env.CRON_RALLY_DELAY_MS);
@@ -192,7 +195,7 @@ async function runAndPost(db: Kysely<Database>, env: CronEnv): Promise<void> {
 
   const pending = await selectUndelivered(db);
   if (pending.length === 0) {
-    console.log("no new comments this run");
+    logger.log("no new comments this run");
     return;
   }
 
@@ -201,7 +204,7 @@ async function runAndPost(db: Kysely<Database>, env: CronEnv): Promise<void> {
   await markDelivered(db, included, Date.now());
 
   const carried = pending.length - included.length;
-  console.log(
+  logger.log(
     `posted ${included.length} comment(s)` +
       (carried > 0 ? `; ${carried} didn't fit, will post next run` : ""),
   );
@@ -210,7 +213,7 @@ async function runAndPost(db: Kysely<Database>, env: CronEnv): Promise<void> {
 async function main(): Promise<void> {
   const env = loadCronEnv();
   const db = makeDb(env);
-  console.log(`cron persisting to ${backendDescription(env)}`);
+  logger.log(`cron persisting to ${backendDescription(env)}`);
 
   // No schedule: run a single pass and exit (driven by an external scheduler).
   if (!env.CRON_SCHEDULE) {
@@ -229,27 +232,27 @@ async function main(): Promise<void> {
   let running = false;
   const tick = async (): Promise<void> => {
     if (running) {
-      console.log("previous pass still running; skipping this tick");
+      logger.log("previous pass still running; skipping this tick");
       return;
     }
     running = true;
     try {
       await runAndPost(db, env);
     } catch (err) {
-      console.error("pass failed:", err);
+      logger.error("pass failed:", err);
     } finally {
       running = false;
     }
   };
 
   const job = Bun.cron(env.CRON_SCHEDULE, tick);
-  console.log(`scheduled: ${env.CRON_SCHEDULE} (UTC)`);
+  logger.log(`scheduled: ${env.CRON_SCHEDULE} (UTC)`);
 
   // Stop the job and close the DB on a termination signal so the process exits
   // cleanly instead of being killed mid-pass. Registered before the leading-edge
   // pass so Ctrl-C during that first (possibly long) scrape is still handled.
   const shutdown = async (sig: string): Promise<void> => {
-    console.log(`${sig} received, shutting down`);
+    logger.log(`${sig} received, shutting down`);
     job.stop();
     await db.destroy();
     process.exit(0);
@@ -262,6 +265,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((e) => {
-  console.error(e);
+  logger.error(e);
   process.exit(1);
 });

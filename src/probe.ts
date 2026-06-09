@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { backendDescription, makeDb } from "./db/index.js";
 import { loadEnv } from "./env.js";
+import { makeLogger } from "./logger.js";
 import { persistStage } from "./persist.js";
 import { fetchAllStages, type RallyKey } from "./results.js";
 import { ensureSession } from "./session.js";
@@ -8,6 +9,8 @@ import { ensureSession } from "./session.js";
 // Positional CLI arg: rally id. The default applies when the arg is absent
 // (undefined short-circuits .default); a present-but-non-numeric arg fails.
 const positionalId = z.coerce.number().int().positive();
+
+const logger = makeLogger("probe");
 
 async function main() {
   const env = loadEnv();
@@ -21,7 +24,7 @@ async function main() {
 
   const db = makeDb(env);
   const rally: RallyKey = { rallyId };
-  console.log(`persisting to ${backendDescription(env)}`);
+  logger.log(`persisting to ${backendDescription(env)}`);
   let newComments = 0;
   let failedStages = 0;
   try {
@@ -34,16 +37,16 @@ async function main() {
         try {
           const res = await persistStage(db, rally, e, Date.now());
           newComments += res.newComments.length;
-          console.log(
+          logger.log(
             `stage ${e.stageNo}: ${e.title} — ${e.rows.length} rows, ${res.newComments.length} new/changed comments`,
           );
         } catch (err) {
           failedStages++;
-          console.error(`persist FAILED for stage ${e.stageNo} (${e.title}):`, err);
+          logger.error(`persist FAILED for stage ${e.stageNo} (${e.title}):`, err);
         }
       },
     });
-    console.log(
+    logger.log(
       `\ntotal stages: ${stages.length}, new/changed comments this run: ${newComments}` +
         (failedStages > 0 ? `, ${failedStages} stage(s) failed to persist` : ""),
     );
@@ -57,6 +60,6 @@ async function main() {
 }
 
 main().catch((e) => {
-  console.error(e);
+  logger.error(e);
   process.exit(1);
 });

@@ -12,12 +12,15 @@ import type { Kysely } from "kysely";
 import { makeDb } from "./db/index.js";
 import type { Database } from "./db/schema.js";
 import { loadBotEnv } from "./env.js";
+import { makeLogger } from "./logger.js";
 import { fetchRallyName, rallyIdFromUrl } from "./results.js";
 import { addWatched, listWatched, removeWatched } from "./watched.js";
 
 // Discord bot for managing the watched-rally list. Gateway connection (not a
 // webhook) so it can receive slash commands. It only reads/writes watched_rally
 // and reads public rally pages — it never scrapes or posts results.
+
+const logger = makeLogger("bot");
 
 const watchCommand = new SlashCommandBuilder()
   .setName("watch")
@@ -104,7 +107,7 @@ async function main() {
     await rest.put(Routes.applicationGuildCommands(env.DISCORD_APP_ID, env.DISCORD_GUILD_ID), {
       body: [watchCommand.toJSON()],
     });
-    console.log(
+    logger.log(
       `bot ready as ${ready.user.tag}; /watch registered to guild ${env.DISCORD_GUILD_ID}`,
     );
   });
@@ -124,7 +127,7 @@ async function main() {
       else if (sub === "remove") await handleRemove(db, interaction);
       else if (sub === "list") await handleList(db, interaction);
     } catch (err) {
-      console.error("watch command failed:", err);
+      logger.error("watch command failed:", err);
       const msg = "Command failed. Try again.";
       if (interaction.deferred || interaction.replied) await interaction.editReply(msg);
       else await interaction.reply({ content: msg, flags: MessageFlags.Ephemeral });
@@ -135,6 +138,6 @@ async function main() {
 }
 
 main().catch((e) => {
-  console.error(e);
+  logger.error(e);
   process.exit(1);
 });
