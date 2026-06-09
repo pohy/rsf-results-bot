@@ -1,4 +1,3 @@
-import 'dotenv/config';
 import { ensureSession } from './session.js';
 import { fetchAllStages } from './results.js';
 
@@ -6,7 +5,7 @@ async function main() {
   const username = process.env.RSF_USER;
   const password = process.env.RSF_PASS;
   const userId = Number(process.env.RSF_USER_ID);
-  const rallyId = Number(process.argv[2] ?? 97248);
+  const rallyId = Number(process.argv[2] ?? 99639); //97248);
   const cg = Number(process.argv[3] ?? 7);
   if (!username || !password || !userId) {
     throw new Error('env RSF_USER, RSF_PASS, RSF_USER_ID required');

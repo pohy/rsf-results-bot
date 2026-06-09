@@ -5,20 +5,18 @@
   "main": "index.js",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "login": "tsx src/cli.ts"
+    "login": "bun run src/cli.ts",
+    "results": "bun run src/probe.ts"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "packageManager": "pnpm@10.29.1",
   "dependencies": {
-    "cheerio": "^1.2.0",
-    "dotenv": "^17.4.2",
-    "undici": "^8.1.0"
+    "cheerio": "^1.2.0"
   },
   "devDependencies": {
+    "@types/bun": "^1.3.0",
     "@types/node": "^25.6.0",
-    "tsx": "^4.21.0",
     "typescript": "^6.0.3"
   }
 }

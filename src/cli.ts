@@ -1,4 +1,3 @@
-import 'dotenv/config';
 import { jarToJSON } from './cookies.js';
 import { ensureSession } from './session.js';
 

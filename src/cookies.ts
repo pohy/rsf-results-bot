@@ -1,5 +1,3 @@
-import { getSetCookies, Headers } from 'undici';
-
 // Single-host jar: domain/path/secure attributes are ignored. All cookies are
 // assumed to apply to BASE. If BASE ever spans multiple hosts, extend this.
 export type CookieJar = ReadonlyMap<string, string>;
@@ -8,19 +6,14 @@ export function createJar(): CookieJar {
   return new Map();
 }
 
-function isExpired(cookie: { maxAge?: number; expires?: number | Date }): boolean {
-  if (cookie.maxAge !== undefined && cookie.maxAge <= 0) return true;
-  if (cookie.expires !== undefined) {
-    const t = cookie.expires instanceof Date ? cookie.expires.getTime() : cookie.expires;
-    if (t <= Date.now()) return true;
-  }
-  return false;
-}
-
 export function updateJarFromResponse(jar: CookieJar, headers: Headers): CookieJar {
   const next = new Map(jar);
-  for (const cookie of getSetCookies(headers)) {
-    if (cookie.value === '' || isExpired(cookie)) {
+  // getSetCookie() is the native Fetch API accessor for multiple Set-Cookie
+  // headers; Bun.Cookie.parse reads name/value/expiry. An empty value or an
+  // already-expired cookie is a deletion.
+  for (const raw of headers.getSetCookie()) {
+    const cookie = Bun.Cookie.parse(raw);
+    if (cookie.value === '' || cookie.isExpired()) {
       next.delete(cookie.name);
       continue;
     }

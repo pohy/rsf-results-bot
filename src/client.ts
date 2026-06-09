@@ -1,18 +1,24 @@
-import { fetch, Response } from 'undici';
 import { CookieJar, jarToHeader, updateJarFromResponse } from './cookies.js';
+import { decodeCp1250 } from './cp1250.js';
 
-// Site serves HTML without a charset declaration; bytes are windows-1250
-// (Central European). Decoding as UTF-8 produces U+FFFD for Hungarian/Czech
-// characters (e.g. "Karankamäki" → "Karankam�ki"). HTML-only — guarded so
-// accidental use on a JSON/other endpoint fails loud instead of corrupting.
-const HTML_DECODER = new TextDecoder('windows-1250');
-
+// Decode HTML per the response charset. The site currently serves UTF-8
+// (Content-Type: text/html; charset=utf-8). It historically served windows-1250
+// (Central European) with no charset; we still honor that label for old pages —
+// Bun's TextDecoder rejects "windows-1250", so it routes to a vendored decoder.
+// HTML-only — guarded so accidental use on a JSON/other endpoint fails loud
+// instead of corrupting.
 export async function readHtml(res: Response): Promise<string> {
   const ct = res.headers.get('content-type') ?? '';
   if (!ct.includes('text/html')) {
     throw new Error(`readHtml: expected text/html, got "${ct}"`);
   }
-  return HTML_DECODER.decode(await res.arrayBuffer());
+  const charset = /charset=([^;]+)/i.exec(ct)?.[1]?.trim().toLowerCase();
+  const buf = await res.arrayBuffer();
+  if (charset === 'windows-1250' || charset === 'cp1250') {
+    return decodeCp1250(buf);
+  }
+  // Default UTF-8: matches the live site and is the safe default for HTML.
+  return new TextDecoder('utf-8').decode(buf);
 }
 
 export const BASE = 'https://www.rallysimfans.hu';
