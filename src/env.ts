@@ -4,6 +4,18 @@ import { z } from "zod";
 // at process start; callers receive a typed, validated object instead of poking
 // process.env.
 
+// Coolify (and Docker Compose env_file) pass values verbatim, wrapping any value
+// containing spaces in literal quotes — so `'*/15 * * * *'` arrives quotes-and-all
+// and fails cron parsing. Strip one layer of surrounding matching quotes.
+const unquote = (raw: string): string => {
+  const s = raw.trim();
+  const quote = s[0];
+  if ((quote === '"' || quote === "'") && s.length >= 2 && s.at(-1) === quote) {
+    return s.slice(1, -1);
+  }
+  return s;
+};
+
 // Backend selection only. Split out so migrate.ts / db code can validate without
 // requiring the auth creds they don't use. DATABASE_URL absent => sqlite backend.
 const DbEnvSchema = z.object({
@@ -48,7 +60,7 @@ const BotEnvSchema = DbEnvSchema.extend(DiscordEnvSchema.shape);
 const CronEnvSchema = EnvSchema.extend({
   DISCORD_BOT_TOKEN: z.string().min(1),
   DISCORD_RESULTS_CHANNEL_ID: z.string().regex(/^\d+$/, "must be a numeric channel id"),
-  CRON_SCHEDULE: z.string().min(1).optional(),
+  CRON_SCHEDULE: z.string().transform(unquote).pipe(z.string().min(1)).optional(),
   CRON_STAGE_DELAY_MS: z.coerce.number().int().nonnegative().default(1500),
   CRON_RALLY_DELAY_MS: z.coerce.number().int().nonnegative().default(5000),
 });
