@@ -23,6 +23,11 @@ export interface ResultTable {
   // never updated, so this is the time it was first scraped. See persist.ts for
   // the deferred "track position/time history across re-scrapes" note.
   first_seen_at: number;
+  // Epoch-ms the comment on this row was posted to Discord, or null if not yet
+  // delivered. Rows without a comment stay null forever. The cron posts every
+  // undelivered comment each pass and stamps this only after the post succeeds,
+  // so a failed post is retried instead of silently dropped (see 0004 migration).
+  delivered_at: number | null;
 }
 
 // Rallies the Discord bot watches. added_by is a Discord user id (a 64-bit

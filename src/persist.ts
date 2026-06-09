@@ -68,6 +68,9 @@ export async function persistStage(
             diff_first_ms: row.diffFirstMs,
             comment: row.comment,
             first_seen_at: now,
+            // Undelivered until a Discord post succeeds; the cron stamps this
+            // via markDelivered. See selectUndelivered / the 0004 migration.
+            delivered_at: null,
           })),
         )
         .onConflict((oc) => oc.columns(["rally_id", "stage_no", "user_id"]).doNothing())
@@ -78,5 +81,71 @@ export async function persistStage(
       .filter((row): row is StageRow & { comment: string } => row.comment !== null)
       .map((row) => ({ stageNo, nickname: row.nickname, comment: row.comment }));
     return { newComments };
+  });
+}
+
+// An undelivered comment with everything needed to render it and, once posted,
+// stamp the source row as delivered. rallyName comes from watched_rally; it
+// falls back to the id if the rally was unwatched while a comment was still
+// pending, so an orphaned comment still posts with usable context.
+export interface UndeliveredComment {
+  rallyId: number;
+  stageNo: number;
+  userId: number;
+  rallyName: string;
+  nickname: string;
+  comment: string;
+}
+
+// Every comment row not yet posted to Discord, oldest first. Picks up rows left
+// behind by earlier failed posts, not just this pass's inserts — that's the
+// whole point of delivered_at. Rows without a comment are skipped.
+export async function selectUndelivered(db: Kysely<Database>): Promise<UndeliveredComment[]> {
+  const rows = await db
+    .selectFrom("result")
+    .leftJoin("watched_rally", "watched_rally.rally_id", "result.rally_id")
+    .select([
+      "result.rally_id as rallyId",
+      "result.stage_no as stageNo",
+      "result.user_id as userId",
+      "watched_rally.name as rallyName",
+      "result.nickname as nickname",
+      "result.comment as comment",
+    ])
+    .where("result.comment", "is not", null)
+    .where("result.delivered_at", "is", null)
+    .orderBy("result.first_seen_at", "asc")
+    .execute();
+
+  return rows.map((r) => ({
+    rallyId: r.rallyId,
+    stageNo: r.stageNo,
+    userId: r.userId,
+    rallyName: r.rallyName ?? `Rally ${r.rallyId}`,
+    nickname: r.nickname,
+    // comment is non-null by the WHERE above; the column type is still nullable.
+    comment: r.comment as string,
+  }));
+}
+
+// Stamp delivered_at on the given comment rows after a successful post, so they
+// aren't collected again. Keyed by the result primary key. A no-op for an empty
+// list. One transaction so a partial stamp can't split a posted batch.
+export async function markDelivered(
+  db: Kysely<Database>,
+  rows: Array<Pick<UndeliveredComment, "rallyId" | "stageNo" | "userId">>,
+  now: number,
+): Promise<void> {
+  if (rows.length === 0) return;
+  await db.transaction().execute(async (trx) => {
+    for (const r of rows) {
+      await trx
+        .updateTable("result")
+        .set({ delivered_at: now })
+        .where("rally_id", "=", r.rallyId)
+        .where("stage_no", "=", r.stageNo)
+        .where("user_id", "=", r.userId)
+        .execute();
+    }
   });
 }
