@@ -3,6 +3,7 @@ import type { Kysely } from "kysely";
 import { backendDescription, makeDb } from "./db/index.js";
 import type { Database } from "./db/schema.js";
 import { type CronEnv, loadCronEnv } from "./env.js";
+import { formatError } from "./errors.js";
 import { makeLogger } from "./logger.js";
 import {
   markDelivered,
@@ -58,7 +59,7 @@ async function runPass(db: Kysely<Database>, env: CronEnv): Promise<void> {
     const updated = await updateDeadlines(db, metas);
     logger.log(`synced deadlines: ${updated}/${watched.length} watched matched the rally list`);
   } catch (err) {
-    logger.error("deadline sync failed; polling with stored deadlines:", err);
+    logger.error("deadline sync failed; polling with stored deadlines:", formatError(err));
   }
 
   // Skip rallies that have closed and already had a full scrape after closing —
@@ -83,7 +84,7 @@ async function runPass(db: Kysely<Database>, env: CronEnv): Promise<void> {
       }
       logger.log(`rally ${rally.rallyId} (${rally.name}): ${stages.length} stage(s) scraped`);
     } catch (err) {
-      logger.error(`rally ${rally.rallyId} (${rally.name}) failed:`, err);
+      logger.error(`rally ${rally.rallyId} (${rally.name}) failed:`, formatError(err));
     }
     // Polite gap before the next rally; skip it after the last one.
     if (i < rallies.length - 1) await sleep(env.CRON_RALLY_DELAY_MS);
@@ -239,7 +240,7 @@ async function main(): Promise<void> {
     try {
       await runAndPost(db, env);
     } catch (err) {
-      logger.error("pass failed:", err);
+      logger.error("pass failed:", formatError(err));
     } finally {
       running = false;
     }
@@ -265,6 +266,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((e) => {
-  logger.error(e);
+  logger.error(formatError(e));
   process.exit(1);
 });
