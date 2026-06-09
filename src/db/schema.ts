@@ -25,7 +25,17 @@ export interface ResultTable {
   first_seen_at: number;
 }
 
+// Rallies the Discord bot watches. added_by is a Discord user id (a 64-bit
+// snowflake), stored as text since it can exceed 2^53.
+export interface WatchedRallyTable {
+  rally_id: number;
+  name: string;
+  added_by: string;
+  added_at: number;
+}
+
 export interface Database {
   stage: StageTable;
   result: ResultTable;
+  watched_rally: WatchedRallyTable;
 }

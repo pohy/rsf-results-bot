@@ -1,10 +1,18 @@
 import type { Kysely } from "kysely";
 import type { Database } from "./db/schema.js";
-import type { RallyKey, StageEntry } from "./results.js";
+import type { RallyKey, StageEntry, StageRow } from "./results.js";
+
+// A comment seen for the first time this run. The cron batches these into one
+// Discord post; the count alone (caller does `.length`) covers probe's needs.
+export interface NewComment {
+  stageNo: number;
+  nickname: string;
+  comment: string;
+}
 
 export interface PersistResult {
   // Rows inserted this run (not previously stored) that carry a non-null comment.
-  newComments: number;
+  newComments: NewComment[];
 }
 
 // Insert-only persistence (MVP). A (rally, stage, user) row is written
@@ -66,7 +74,9 @@ export async function persistStage(
         .execute();
     }
 
-    const newComments = fresh.filter((row) => row.comment !== null).length;
+    const newComments: NewComment[] = fresh
+      .filter((row): row is StageRow & { comment: string } => row.comment !== null)
+      .map((row) => ({ stageNo, nickname: row.nickname, comment: row.comment }));
     return { newComments };
   });
 }

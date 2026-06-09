@@ -18,8 +18,45 @@ const EnvSchema = DbEnvSchema.extend({
   RSF_AUTH_PATH: z.string().default(".auth.json"),
 });
 
+// Discord bot config. The bot only writes the watched_rally table and reads
+// public rally pages, so it needs the DB env but not the RSF login creds.
+const DiscordEnvSchema = z.object({
+  DISCORD_BOT_TOKEN: z.string().min(1),
+  DISCORD_APP_ID: z.string().min(1),
+  DISCORD_GUILD_ID: z.string().min(1),
+  // Comma-separated Discord user ids allowed to run commands. Snowflakes are
+  // 64-bit; keep them as strings and never parse to number.
+  DISCORD_ALLOWED_USER_IDS: z
+    .string()
+    .transform((s) =>
+      s
+        .split(",")
+        .map((x) => x.trim())
+        .filter(Boolean),
+    )
+    .pipe(z.array(z.string().regex(/^\d+$/, "must be a numeric user id")).min(1)),
+});
+
+const BotEnvSchema = DbEnvSchema.extend(DiscordEnvSchema.shape);
+
+// Cron scraper config. It logs in (RSF creds), reads watched_rally + scrapes
+// results (DB env), and posts one summary message per run via the bot token to
+// a fixed results channel. CRON_SCHEDULE absent => run a single pass and exit
+// (drive it from an external scheduler); set it to a cron expression to
+// self-schedule via Bun.cron (interpreted as UTC). Delays throttle requests so
+// we don't hammer the site: between stages of a rally, and between rallies.
+const CronEnvSchema = EnvSchema.extend({
+  DISCORD_BOT_TOKEN: z.string().min(1),
+  DISCORD_RESULTS_CHANNEL_ID: z.string().regex(/^\d+$/, "must be a numeric channel id"),
+  CRON_SCHEDULE: z.string().min(1).optional(),
+  CRON_STAGE_DELAY_MS: z.coerce.number().int().nonnegative().default(1500),
+  CRON_RALLY_DELAY_MS: z.coerce.number().int().nonnegative().default(5000),
+});
+
 export type DbEnv = z.infer<typeof DbEnvSchema>;
 export type Env = z.infer<typeof EnvSchema>;
+export type BotEnv = z.infer<typeof BotEnvSchema>;
+export type CronEnv = z.infer<typeof CronEnvSchema>;
 
 function parseOrThrow<T>(schema: z.ZodType<T>): T {
   const r = schema.safeParse(process.env);
@@ -31,3 +68,5 @@ function parseOrThrow<T>(schema: z.ZodType<T>): T {
 
 export const loadEnv = (): Env => parseOrThrow(EnvSchema);
 export const loadDbEnv = (): DbEnv => parseOrThrow(DbEnvSchema);
+export const loadBotEnv = (): BotEnv => parseOrThrow(BotEnvSchema);
+export const loadCronEnv = (): CronEnv => parseOrThrow(CronEnvSchema);

@@ -1,8 +1,50 @@
 import * as cheerio from "cheerio";
 import { z } from "zod";
 import { BASE, readHtml, rsfFetch } from "./client.js";
-import type { CookieJar } from "./cookies.js";
+import { type CookieJar, createJar } from "./cookies.js";
 import { parseTimeMs } from "./time.js";
+
+// Extract the rally id from any rallysimfans rally URL. The id lives in the
+// `rally_id` query param regardless of which `centerbox` page the URL points at
+// (rally_results.php, rally_list_details.php, ...). `cg` (car group), if
+// present, is ignored. Returns null for a non-URL or a missing/invalid id.
+export function rallyIdFromUrl(input: string): number | null {
+  let url: URL;
+  try {
+    url = new URL(input.trim());
+  } catch {
+    return null;
+  }
+  const raw = url.searchParams.get("rally_id");
+  if (!raw) return null;
+  const id = Number(raw);
+  return Number.isInteger(id) && id > 0 ? id : null;
+}
+
+const rallyDetailsUrl = (rallyId: number): string =>
+  `${BASE}/rbr/rally_online.php?centerbox=rally_list_details.php&rally_id=${rallyId}`;
+
+// The rally name sits in the bold cell of the "Rally info" header table:
+//   <div class="fejlec4">Rally info</div>
+//   <table ...><tr class="fejlec"><td colspan="3"><b>NAME</td>...
+export function parseRallyName(html: string): string | null {
+  const $ = cheerio.load(html);
+  const heading = $("div.fejlec4")
+    .filter((_, el) => $(el).text().trim() === "Rally info")
+    .first();
+  const name = heading.next("table").find("tr.fejlec td b").first().text().trim();
+  return name || null;
+}
+
+// Fetch a rally's name from its public details page (no login required). Throws
+// on a non-200; returns null when the page loads but the name can't be parsed.
+export async function fetchRallyName(rallyId: number): Promise<string | null> {
+  const { res } = await rsfFetch(createJar(), rallyDetailsUrl(rallyId));
+  if (res.status !== 200) {
+    throw new Error(`rally details HTTP ${res.status} for rally ${rallyId}`);
+  }
+  return parseRallyName(await readHtml(res));
+}
 
 export const StageRowSchema = z.object({
   position: z.number().int().positive(),

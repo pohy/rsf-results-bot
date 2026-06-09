@@ -33,9 +33,9 @@ async function main() {
       onStage: async (e) => {
         try {
           const res = await persistStage(db, rally, e, Date.now());
-          newComments += res.newComments;
+          newComments += res.newComments.length;
           console.log(
-            `stage ${e.stageNo}: ${e.title} — ${e.rows.length} rows, ${res.newComments} new/changed comments`,
+            `stage ${e.stageNo}: ${e.title} — ${e.rows.length} rows, ${res.newComments.length} new/changed comments`,
           );
         } catch (err) {
           failedStages++;
