@@ -1,12 +1,17 @@
 import * as cheerio from "cheerio";
 import { BASE, readHtml, rsfFetch } from "./client.js";
 import type { CookieJar } from "./cookies.js";
+import { parseTimeMs } from "./time.js";
 
 export interface StageRow {
   position: number;
   userId: number;
   nickname: string;
   comment: string | null;
+  // Milliseconds. Null when the cell is empty or unparseable.
+  stageTimeMs: number | null;
+  diffPrevMs: number | null;
+  diffFirstMs: number | null;
 }
 
 export interface StageResults {
@@ -16,13 +21,14 @@ export interface StageResults {
 
 export interface StageKey {
   rallyId: number;
-  cg: number;
+  carGroupId: number;
   stageNo: number;
 }
 
 const stageUrl = (k: StageKey): string =>
+  // `cg` is the site's query param for car group; we expose it as carGroupId.
   `${BASE}/rbr/rally_online.php?centerbox=rally_results_stres.php` +
-  `&rally_id=${k.rallyId}&cg=${k.cg}&stage_no=${k.stageNo}`;
+  `&rally_id=${k.rallyId}&cg=${k.carGroupId}&stage_no=${k.stageNo}`;
 
 function parseTitle($: cheerio.CheerioAPI): string | null {
   // Header row inside the left results table: <tr class="fejlec2">...<b>TITLE times:</b>...
@@ -56,11 +62,14 @@ function parseRows($: cheerio.CheerioAPI): StageRow[] {
     const userId = Number(href.match(/user_stats=(\d+)/)?.[1]);
     const nickname = $nameTd.find("a > samp b").first().text().trim();
     const comment = extractTip($tr.attr("onmouseover") ?? "");
+    const stageTimeMs = parseTimeMs($tr.find("td.stage_results_time").text());
+    const diffPrevMs = parseTimeMs($tr.find("td.stage_results_diff_prev").text());
+    const diffFirstMs = parseTimeMs($tr.find("td.stage_results_diff_first").text());
 
     if (!Number.isFinite(position) || !Number.isFinite(userId) || !nickname) {
       return;
     }
-    out.push({ position, userId, nickname, comment });
+    out.push({ position, userId, nickname, comment, stageTimeMs, diffPrevMs, diffFirstMs });
   });
   return out;
 }
@@ -96,7 +105,7 @@ export async function fetchStageResults(jar: CookieJar, key: StageKey): Promise<
 
 export interface RallyKey {
   rallyId: number;
-  cg: number;
+  carGroupId: number;
 }
 
 export interface StageEntry extends StageResults {
@@ -111,7 +120,7 @@ export interface FetchAllStagesResult {
 export interface FetchAllStagesOptions {
   delayMs?: number;
   maxRetries?: number;
-  onStage?: (entry: StageEntry) => void;
+  onStage?: (entry: StageEntry) => void | Promise<void>;
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -171,7 +180,7 @@ export async function fetchAllStages(
     ...parseStageResults(first.html),
   };
   stages.push(firstEntry);
-  opts.onStage?.(firstEntry);
+  await opts.onStage?.(firstEntry);
 
   let currentJar = first.jar;
   for (let stageNo = 2; stageNo <= count; stageNo++) {
@@ -184,7 +193,7 @@ export async function fetchAllStages(
     currentJar = nextJar;
     const entry: StageEntry = { stageNo, ...parseStageResults(html) };
     stages.push(entry);
-    opts.onStage?.(entry);
+    await opts.onStage?.(entry);
   }
   return { jar: currentJar, stages };
 }
