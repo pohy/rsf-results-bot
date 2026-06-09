@@ -1,0 +1,50 @@
+# Deployment: Discord bot + scraper cron. Both run the same image, share one
+# SQLite file and the auth-jar on a named volume.
+#
+# `migrate` is a run-once init (it applies migrations then exits) — bot and cron
+# wait for it to finish before starting, so the schema exists before either
+# touches the DB.
+#
+# DB: defaults to the SQLite file on the `data` volume. For a managed/external
+# Postgres instead, set DATABASE_URL in .env and drop the SQLITE_PATH overrides.
+
+x-app: &app
+  build: .
+  env_file: .env
+  volumes:
+    - data:/usr/src/app/data
+  environment:
+    # SQLite file lives on the shared volume so bot, cron and migrate agree.
+    SQLITE_PATH: /usr/src/app/data/app.sqlite
+
+services:
+  migrate:
+    <<: *app
+    command: ["bun", "run", "migrate"]
+    restart: "no"
+
+  bot:
+    <<: *app
+    command: ["bun", "run", "bot"]
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  cron:
+    <<: *app
+    command: ["bun", "run", "cron"]
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      SQLITE_PATH: /usr/src/app/data/app.sqlite
+      # Persist the rotating session jar so a restart reuses the login.
+      RSF_AUTH_PATH: /usr/src/app/data/.auth.json
+      # Self-schedule in-process (UTC). Unset => one pass then exit; with
+      # restart:unless-stopped that would loop tightly, so keep a schedule here.
+      CRON_SCHEDULE: ${CRON_SCHEDULE:-*/15 * * * *}
+
+volumes:
+  data:
