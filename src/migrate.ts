@@ -3,14 +3,16 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { FileMigrationProvider, type MigrationResultSet, Migrator } from "kysely/migration";
 import { backendDescription, makeDb } from "./db/index.js";
+import { loadDbEnv } from "./env.js";
 
 // Migration runner. `bun run src/migrate.ts` applies all pending migrations;
 // `bun run src/migrate.ts down` reverts the last one. Uses makeDb() so it
 // targets sqlite locally and Postgres when DATABASE_URL is set — same dialect
 // selection as the app. Run by Bun directly so `bun:sqlite` resolves natively.
 async function main() {
+  const env = loadDbEnv();
   const migrationFolder = fileURLToPath(new URL("../migrations", import.meta.url));
-  const db = makeDb();
+  const db = makeDb(env);
   const migrator = new Migrator({
     db,
     provider: new FileMigrationProvider({
@@ -22,7 +24,7 @@ async function main() {
   });
 
   const down = process.argv[2] === "down";
-  console.log(`migrating ${backendDescription()} (${down ? "down" : "latest"})`);
+  console.log(`migrating ${backendDescription(env)} (${down ? "down" : "latest"})`);
 
   const { error, results }: MigrationResultSet = down
     ? await migrator.migrateDown()

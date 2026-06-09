@@ -1,17 +1,13 @@
 import { readFile, writeFile } from "node:fs/promises";
+import { z } from "zod";
 import { type CookieJar, jarFromJSON, jarToJSON } from "./cookies.js";
+
+// Persisted jar shape: a flat name->value cookie map.
+const JarJSONSchema = z.record(z.string(), z.string());
 
 export async function saveJar(path: string, jar: CookieJar): Promise<void> {
   // 0o600: file contains live session cookies, treat as secret.
   await writeFile(path, JSON.stringify(jarToJSON(jar), null, 2), { encoding: "utf8", mode: 0o600 });
-}
-
-function isStringRecord(v: unknown): v is Record<string, string> {
-  if (v === null || typeof v !== "object" || Array.isArray(v)) return false;
-  for (const val of Object.values(v as Record<string, unknown>)) {
-    if (typeof val !== "string") return false;
-  }
-  return true;
 }
 
 export async function loadJar(path: string): Promise<CookieJar | null> {
@@ -28,6 +24,7 @@ export async function loadJar(path: string): Promise<CookieJar | null> {
   } catch {
     return null;
   }
-  if (!isStringRecord(parsed)) return null;
-  return jarFromJSON(parsed);
+  const result = JarJSONSchema.safeParse(parsed);
+  if (!result.success) return null;
+  return jarFromJSON(result.data);
 }

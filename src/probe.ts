@@ -1,27 +1,28 @@
+import { z } from "zod";
 import { backendDescription, makeDb } from "./db/index.js";
+import { loadEnv } from "./env.js";
 import { persistStage } from "./persist.js";
 import { fetchAllStages, type RallyKey } from "./results.js";
 import { ensureSession } from "./session.js";
 
+// Positional CLI args: rally id and car group id. Defaults apply when the arg is
+// absent (undefined short-circuits .default); a present-but-non-numeric arg fails.
+const positionalId = z.coerce.number().int().positive();
+
 async function main() {
-  const username = process.env.RSF_USER;
-  const password = process.env.RSF_PASS;
-  const userId = Number(process.env.RSF_USER_ID);
-  const rallyId = Number(process.argv[2] ?? 99639); //97248);
-  const carGroupId = Number(process.argv[3] ?? 7);
-  if (!username || !password || !userId) {
-    throw new Error("env RSF_USER, RSF_PASS, RSF_USER_ID required");
-  }
+  const env = loadEnv();
+  const rallyId = positionalId.default(99639).parse(process.argv[2]); //97248);
+  const carGroupId = positionalId.default(7).parse(process.argv[3]);
 
   const { jar } = await ensureSession({
-    creds: { username, password },
-    userId,
-    jarPath: process.env.RSF_AUTH_PATH ?? ".auth.json",
+    creds: { username: env.RSF_USER, password: env.RSF_PASS },
+    userId: env.RSF_USER_ID,
+    jarPath: env.RSF_AUTH_PATH,
   });
 
-  const db = makeDb();
+  const db = makeDb(env);
   const rally: RallyKey = { rallyId, carGroupId };
-  console.log(`persisting to ${backendDescription()}`);
+  console.log(`persisting to ${backendDescription(env)}`);
   let newComments = 0;
   let failedStages = 0;
   try {

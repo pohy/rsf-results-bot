@@ -3,6 +3,7 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { Kysely, PostgresDialect } from "kysely";
 import pg from "pg";
+import type { DbEnv } from "../env.js";
 import { BunSqliteDialect } from "./bun-sqlite-dialect.js";
 import type { Database } from "./schema.js";
 
@@ -27,32 +28,23 @@ export function makePostgresDialect(connectionString: string): PostgresDialect {
   return new PostgresDialect({ pool: new pg.Pool({ connectionString }) });
 }
 
-const DEFAULT_SQLITE_PATH = "./data/dev.sqlite";
-
-const sqlitePath = (): string => process.env.SQLITE_PATH ?? DEFAULT_SQLITE_PATH;
-
 // DATABASE_URL present => Postgres (prod). Otherwise sqlite file (local dev),
-// SQLITE_PATH or ./data/dev.sqlite.
-export function dialectFromEnv() {
-  const url = process.env.DATABASE_URL;
-  if (url) return makePostgresDialect(url);
-  return makeSqliteDialect(sqlitePath());
+// SQLITE_PATH or its default.
+export function dialectFromEnv(env: DbEnv) {
+  if (env.DATABASE_URL) return makePostgresDialect(env.DATABASE_URL);
+  return makeSqliteDialect(env.SQLITE_PATH);
 }
 
 // Human-readable description of the active backend, secrets stripped. Log this
 // so a missing DATABASE_URL (silent fallback to local sqlite) is visible rather
 // than silently sending prod writes to a throwaway file.
-export function backendDescription(): string {
-  const url = process.env.DATABASE_URL;
-  if (!url) return `sqlite ${sqlitePath()}`;
-  try {
-    const u = new URL(url);
-    return `postgres ${u.host}${u.pathname}`;
-  } catch {
-    return "postgres (unparseable DATABASE_URL)";
-  }
+export function backendDescription(env: DbEnv): string {
+  if (!env.DATABASE_URL) return `sqlite ${env.SQLITE_PATH}`;
+  // DATABASE_URL is validated as a URL by the env schema, so parsing won't throw.
+  const u = new URL(env.DATABASE_URL);
+  return `postgres ${u.host}${u.pathname}`;
 }
 
-export function makeDb(): Kysely<Database> {
-  return new Kysely<Database>({ dialect: dialectFromEnv() });
+export function makeDb(env: DbEnv): Kysely<Database> {
+  return new Kysely<Database>({ dialect: dialectFromEnv(env) });
 }

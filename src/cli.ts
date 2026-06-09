@@ -1,22 +1,14 @@
 import { jarToJSON } from "./cookies.js";
+import { loadEnv } from "./env.js";
 import { ensureSession } from "./session.js";
 
 async function main() {
-  const username = process.env.RSF_USER;
-  const password = process.env.RSF_PASS;
-  const userId = Number(process.env.RSF_USER_ID);
-  const jarPath = process.env.RSF_AUTH_PATH ?? ".auth.json";
-  if (!username || !password) {
-    throw new Error("RSF_USER and RSF_PASS required in env");
-  }
-  if (!userId) {
-    throw new Error("RSF_USER_ID required in env (numeric profile id)");
-  }
+  const env = loadEnv();
 
   const { jar, source } = await ensureSession({
-    creds: { username, password },
-    userId,
-    jarPath,
+    creds: { username: env.RSF_USER, password: env.RSF_PASS },
+    userId: env.RSF_USER_ID,
+    jarPath: env.RSF_AUTH_PATH,
   });
   console.log("source:", source);
   console.log("cookies:", jarToJSON(jar));

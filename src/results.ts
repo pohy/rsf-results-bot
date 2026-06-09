@@ -1,23 +1,26 @@
 import * as cheerio from "cheerio";
+import { z } from "zod";
 import { BASE, readHtml, rsfFetch } from "./client.js";
 import type { CookieJar } from "./cookies.js";
 import { parseTimeMs } from "./time.js";
 
-export interface StageRow {
-  position: number;
-  userId: number;
-  nickname: string;
-  comment: string | null;
+export const StageRowSchema = z.object({
+  position: z.number().int().positive(),
+  userId: z.number().int().positive(),
+  nickname: z.string().min(1),
+  comment: z.string().nullable(),
   // Milliseconds. Null when the cell is empty or unparseable.
-  stageTimeMs: number | null;
-  diffPrevMs: number | null;
-  diffFirstMs: number | null;
-}
+  stageTimeMs: z.number().nullable(),
+  diffPrevMs: z.number().nullable(),
+  diffFirstMs: z.number().nullable(),
+});
+export type StageRow = z.infer<typeof StageRowSchema>;
 
-export interface StageResults {
-  title: string | null;
-  rows: StageRow[];
-}
+export const StageResultsSchema = z.object({
+  title: z.string().nullable(),
+  rows: z.array(StageRowSchema),
+});
+export type StageResults = z.infer<typeof StageResultsSchema>;
 
 export interface StageKey {
   rallyId: number;
@@ -56,20 +59,22 @@ function parseRows($: cheerio.CheerioAPI): StageRow[] {
   const out: StageRow[] = [];
   rows.each((_, el) => {
     const $tr = $(el);
-    const position = Number($tr.find("td.stage_results_poz").text().trim());
     const $nameTd = $tr.find("td.stage_results_name");
     const href = $nameTd.find("a").attr("href") ?? "";
-    const userId = Number(href.match(/user_stats=(\d+)/)?.[1]);
-    const nickname = $nameTd.find("a > samp b").first().text().trim();
-    const comment = extractTip($tr.attr("onmouseover") ?? "");
-    const stageTimeMs = parseTimeMs($tr.find("td.stage_results_time").text());
-    const diffPrevMs = parseTimeMs($tr.find("td.stage_results_diff_prev").text());
-    const diffFirstMs = parseTimeMs($tr.find("td.stage_results_diff_first").text());
+    const candidate = {
+      position: Number($tr.find("td.stage_results_poz").text().trim()),
+      userId: Number(href.match(/user_stats=(\d+)/)?.[1]),
+      nickname: $nameTd.find("a > samp b").first().text().trim(),
+      comment: extractTip($tr.attr("onmouseover") ?? ""),
+      stageTimeMs: parseTimeMs($tr.find("td.stage_results_time").text()),
+      diffPrevMs: parseTimeMs($tr.find("td.stage_results_diff_prev").text()),
+      diffFirstMs: parseTimeMs($tr.find("td.stage_results_diff_first").text()),
+    };
 
-    if (!Number.isFinite(position) || !Number.isFinite(userId) || !nickname) {
-      return;
-    }
-    out.push({ position, userId, nickname, comment, stageTimeMs, diffPrevMs, diffFirstMs });
+    // Drop header/spacer rows and any row missing a valid position, user id, or
+    // nickname; the schema is the single guard for a well-formed result row.
+    const parsed = StageRowSchema.safeParse(candidate);
+    if (parsed.success) out.push(parsed.data);
   });
   return out;
 }
@@ -108,9 +113,10 @@ export interface RallyKey {
   carGroupId: number;
 }
 
-export interface StageEntry extends StageResults {
-  stageNo: number;
-}
+export const StageEntrySchema = StageResultsSchema.extend({
+  stageNo: z.number().int().positive(),
+});
+export type StageEntry = z.infer<typeof StageEntrySchema>;
 
 export interface FetchAllStagesResult {
   jar: CookieJar;
