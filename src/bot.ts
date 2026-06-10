@@ -31,6 +31,12 @@ const watchCommand = new SlashCommandBuilder()
       .setDescription("Watch a rally by its URL")
       .addStringOption((o) =>
         o.setName("url").setDescription("Rally URL from rallysimfans.hu").setRequired(true),
+      )
+      .addBooleanOption((o) =>
+        o
+          .setName("send_old_comments")
+          .setDescription("Post the rally's existing comment backlog (default: no)")
+          .setRequired(false),
       ),
   )
   .addSubcommand((s) =>
@@ -59,11 +65,15 @@ async function handleAdd(
     await interaction.editReply(`Couldn't read the rally name for ${rallyId}. Not added.`);
     return;
   }
+  // Default off: a freshly added rally usually has a full comment history we
+  // don't want dumped into the channel; only future comments should post.
+  const sendOldComments = interaction.options.getBoolean("send_old_comments") ?? false;
   const added = await addWatched(db, {
     rallyId,
     name,
     addedBy: interaction.user.id,
     addedAt: Date.now(),
+    sendOldComments,
   });
   await interaction.editReply(
     added ? `Now watching **${name}** (${rallyId}).` : `Already watching **${name}** (${rallyId}).`,

@@ -41,6 +41,12 @@ export interface WatchedRallyTable {
   // the cron first sees the rally on the list; a null deadline means "keep
   // polling" — the poller can't tell it's finished. See poll.ts / cron.ts.
   deadline_at: number | null;
+  // 0/1 (no-boolean convention, see 0005 migration). send_old_comments: whether
+  // the rally's pre-existing comment backlog is posted on the first scrape (1) or
+  // suppressed (0). backfilled: 0 until that first full scrape completes, 1 after
+  // — the suppression decision only applies to that first scrape (see cron.ts).
+  send_old_comments: number;
+  backfilled: number;
 }
 
 export interface Database {

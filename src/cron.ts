@@ -15,7 +15,7 @@ import { selectPollable } from "./poll.js";
 import { fetchRallyList } from "./rallies.js";
 import { fetchAllStages, type RallyKey } from "./results.js";
 import { ensureSession } from "./session.js";
-import { listWatched, updateDeadlines } from "./watched.js";
+import { completeBackfill, listWatched, updateDeadlines } from "./watched.js";
 
 // Periodic scraper. Each pass: re-read the watched_rally table (so /watch
 // add/remove from the Discord bot take effect without a restart), then scrape
@@ -83,6 +83,16 @@ async function runPass(db: Kysely<Database>, env: CronEnv): Promise<void> {
         await persistStage(db, key, stage, now);
       }
       logger.log(`rally ${rally.rallyId} (${rally.name}): ${stages.length} stage(s) scraped`);
+      // First full scrape just finished: apply the rally's backlog choice (this
+      // pass is the one that turned up its existing comments) and mark it
+      // backfilled. Runs before selectUndelivered below, so suppressed comments
+      // are already stamped delivered and never reach the post.
+      if (!rally.backfilled) {
+        await completeBackfill(db, rally.rallyId, rally.sendOldComments, now);
+        if (!rally.sendOldComments) {
+          logger.log(`rally ${rally.rallyId} (${rally.name}): suppressed comment backlog`);
+        }
+      }
     } catch (err) {
       logger.error(`rally ${rally.rallyId} (${rally.name}) failed:`, formatError(err));
     }

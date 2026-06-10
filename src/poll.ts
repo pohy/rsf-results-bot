@@ -2,6 +2,13 @@ import type { Kysely } from "kysely";
 import type { Database } from "./db/schema.js";
 import type { WatchedRally } from "./watched.js";
 
+// A pollable rally plus the per-rally backlog state the cron needs to apply the
+// send_old_comments decision after the first scrape (see cron.ts / completeBackfill).
+export interface PollableRally extends WatchedRally {
+  sendOldComments: boolean;
+  backfilled: boolean;
+}
+
 // A watched rally is "done" — and the cron stops polling it — once it has both:
 //   1. finished: its deadline_at is known and now is past it, and
 //   2. all comments parsed: at least one full scrape ran after the deadline
@@ -14,10 +21,10 @@ import type { WatchedRally } from "./watched.js";
 //
 // A null deadline_at means "not known yet" and is never treated as done, so an
 // unsynced rally keeps being polled rather than being skipped by mistake.
-export async function selectPollable(db: Kysely<Database>, now: number): Promise<WatchedRally[]> {
+export async function selectPollable(db: Kysely<Database>, now: number): Promise<PollableRally[]> {
   const rows = await db
     .selectFrom("watched_rally as w")
-    .select(["w.rally_id", "w.name"])
+    .select(["w.rally_id", "w.name", "w.send_old_comments", "w.backfilled"])
     .where((eb) =>
       eb.or([
         eb("w.deadline_at", "is", null),
@@ -35,5 +42,10 @@ export async function selectPollable(db: Kysely<Database>, now: number): Promise
     )
     .orderBy("w.added_at", "asc")
     .execute();
-  return rows.map((r) => ({ rallyId: r.rally_id, name: r.name }));
+  return rows.map((r) => ({
+    rallyId: r.rally_id,
+    name: r.name,
+    sendOldComments: r.send_old_comments === 1,
+    backfilled: r.backfilled === 1,
+  }));
 }
