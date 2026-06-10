@@ -32,16 +32,25 @@ Slash commands are typed, give autocomplete, and need **no privileged intent**
 (only the default `Guilds` intent).
 
 ```
-/watch add  url:<rally URL>
+/watch add  url:<rally URL>  channel:<#channel>  [send_old_comments:<bool>]
 /watch remove rally:<id>
 /watch list
 ```
 
 - `add` takes the **rally URL**, not raw ids. Car group plays no role here and
   is not stored. Adding an already-watched rally is rejected (see below).
+- `channel` is **required** and picks where this rally's comments post (text or
+  announcement channels). It's stored NOT NULL on `watched_rally.channel_id`; the
+  cron routes each rally's comments to its own channel, batching per channel so a
+  message never mixes rallies bound to different rooms. Existing rallies were
+  backfilled to `DISCORD_RESULTS_CHANNEL_ID` (migration 0006, which requires that
+  env var); the cron still falls back to it for comments whose rally was unwatched.
+- `send_old_comments` (optional, default off) posts the rally's pre-existing
+  comment backlog on the first scrape instead of suppressing it.
 - `remove` takes the rally id (shown by `list`).
-- `list` replies ephemerally (only the caller sees it) and shows just
-  `rally_id` + `name` — not `added_by` / `added_at`.
+- `list` replies ephemerally (only the caller sees it). Each rally is a masked
+  link `[name](rally details URL)` followed by its target channel as a `<#id>`
+  mention — not `added_by` / `added_at`.
 
 ### Parsing the rally URL
 

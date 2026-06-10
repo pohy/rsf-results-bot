@@ -52,8 +52,11 @@ const DiscordEnvSchema = z.object({
 const BotEnvSchema = DbEnvSchema.extend(DiscordEnvSchema.shape);
 
 // Cron scraper config. It logs in (RSF creds), reads watched_rally + scrapes
-// results (DB env), and posts one summary message per run via the bot token to
-// a fixed results channel. CRON_SCHEDULE absent => run a single pass and exit
+// results (DB env), and posts new comments via the bot token to each rally's
+// configured channel (watched_rally.channel_id). DISCORD_RESULTS_CHANNEL_ID is
+// the value the 0006 migration backfills existing rallies to (and which that
+// migration requires), plus the fallback for comments whose rally has since been
+// unwatched. CRON_SCHEDULE absent => run a single pass and exit
 // (drive it from an external scheduler); set it to a cron expression to
 // self-schedule via Bun.cron (interpreted as UTC). Delays throttle requests so
 // we don't hammer the site: between stages of a rally, and between rallies.

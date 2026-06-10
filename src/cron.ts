@@ -210,10 +210,10 @@ function formatMessages(comments: UndeliveredComment[]): FormattedMessage[] {
   return messages;
 }
 
-async function postMessage(env: CronEnv, content: string): Promise<void> {
+async function postMessage(env: CronEnv, channelId: string, content: string): Promise<void> {
   // REST-only (no gateway): the cron just posts, it doesn't receive events.
   const rest = new REST().setToken(env.DISCORD_BOT_TOKEN);
-  await rest.post(Routes.channelMessages(env.DISCORD_RESULTS_CHANNEL_ID), { body: { content } });
+  await rest.post(Routes.channelMessages(channelId), { body: { content } });
 }
 
 // One scrape pass plus its Discord posts. The pass persists new comments
@@ -231,15 +231,31 @@ async function runAndPost(db: Kysely<Database>, env: CronEnv): Promise<void> {
     return;
   }
 
-  const messages = formatMessages(pending);
-  let posted = 0;
-  for (const { content, included } of messages) {
-    await postMessage(env, content);
-    await markDelivered(db, included, Date.now());
-    posted += included.length;
+  // Route each rally's comments to its own channel (watched_rally.channel_id),
+  // falling back to the env results channel for rows with no channel (orphaned
+  // comments whose rally was unwatched). Comments are batched per channel, never
+  // across channels, so a single message can't mix rallies bound to different
+  // rooms. Each channel's backlog still splits across as many messages as it needs.
+  const byChannel = new Map<string, UndeliveredComment[]>();
+  for (const c of pending) {
+    const channelId = c.channelId ?? env.DISCORD_RESULTS_CHANNEL_ID;
+    const list = byChannel.get(channelId) ?? [];
+    list.push(c);
+    byChannel.set(channelId, list);
   }
 
-  logger.log(`posted ${posted} comment(s) in ${messages.length} message(s)`);
+  let posted = 0;
+  let messageCount = 0;
+  for (const [channelId, comments] of byChannel) {
+    for (const { content, included } of formatMessages(comments)) {
+      await postMessage(env, channelId, content);
+      await markDelivered(db, included, Date.now());
+      posted += included.length;
+      messageCount += 1;
+    }
+  }
+
+  logger.log(`posted ${posted} comment(s) in ${messageCount} message(s)`);
 }
 
 async function main(): Promise<void> {

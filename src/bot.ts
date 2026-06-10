@@ -1,4 +1,5 @@
 import {
+  ChannelType,
   type ChatInputCommandInteraction,
   Client,
   Events,
@@ -15,7 +16,7 @@ import { makeDb } from "./db/index.js";
 import type { Database } from "./db/schema.js";
 import { loadBotEnv } from "./env.js";
 import { makeLogger } from "./logger.js";
-import { fetchRallyName, rallyIdFromUrl } from "./results.js";
+import { fetchRallyName, rallyDetailsUrl, rallyIdFromUrl } from "./results.js";
 import { addWatched, listWatched, removeWatched } from "./watched.js";
 
 // Discord bot for managing the watched-rally list. Gateway connection (not a
@@ -33,6 +34,14 @@ const watchCommand = new SlashCommandBuilder()
       .setDescription("Watch a rally by its URL")
       .addStringOption((o) =>
         o.setName("url").setDescription("Rally URL from rallysimfans.hu").setRequired(true),
+      )
+      // Required options must precede optional ones in a Discord command.
+      .addChannelOption((o) =>
+        o
+          .setName("channel")
+          .setDescription("Channel to post this rally's comments in")
+          .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
+          .setRequired(true),
       )
       .addBooleanOption((o) =>
         o
@@ -70,15 +79,19 @@ async function handleAdd(
   // Default off: a freshly added rally usually has a full comment history we
   // don't want dumped into the channel; only future comments should post.
   const sendOldComments = interaction.options.getBoolean("send_old_comments") ?? false;
+  const channelId = interaction.options.getChannel("channel", true).id;
   const added = await addWatched(db, {
     rallyId,
     name,
     addedBy: interaction.user.id,
     addedAt: Date.now(),
     sendOldComments,
+    channelId,
   });
   await interaction.editReply(
-    added ? `Now watching **${name}** (${rallyId}).` : `Already watching **${name}** (${rallyId}).`,
+    added
+      ? `Now watching **${name}** (${rallyId}) → <#${channelId}>.`
+      : `Already watching **${name}** (${rallyId}).`,
   );
 }
 
@@ -99,10 +112,15 @@ async function handleList(
   interaction: ChatInputCommandInteraction,
 ): Promise<void> {
   const rows = await listWatched(db);
+  // Masked link [name](url) is clickable and doesn't trigger a link-preview embed;
+  // <#id> renders the target channel as a mention. Each rally posts its comments
+  // into that channel (see watched_rally.channel_id / cron.ts).
   const body =
     rows.length === 0
       ? "No rallies watched."
-      : rows.map((r) => `• **${r.name}** (${r.rallyId})`).join("\n");
+      : rows
+          .map((r) => `• [${r.name}](${rallyDetailsUrl(r.rallyId)}) → <#${r.channelId}>`)
+          .join("\n");
   await interaction.reply({ content: body, flags: MessageFlags.Ephemeral });
 }
 

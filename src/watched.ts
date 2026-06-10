@@ -6,6 +6,7 @@ import type { Database } from "./db/schema.js";
 export interface WatchedRally {
   rallyId: number;
   name: string;
+  channelId: string;
 }
 
 export interface AddWatched {
@@ -17,6 +18,8 @@ export interface AddWatched {
   // Stored as 0/1; backfilled starts at 0 so the cron's first pass applies this
   // choice (see completeBackfill / cron.ts).
   sendOldComments: boolean;
+  // Discord channel id this rally's comments post to (required by /watch add).
+  channelId: string;
 }
 
 // Insert a rally to watch. Returns false without writing when the rally is
@@ -41,6 +44,7 @@ export async function addWatched(db: Kysely<Database>, w: AddWatched): Promise<b
         send_old_comments: w.sendOldComments ? 1 : 0,
         // Not yet scraped; the cron's first pass runs the backlog decision.
         backfilled: 0,
+        channel_id: w.channelId,
       })
       .execute();
     return true;
@@ -114,8 +118,8 @@ export async function updateDeadlines(
 export async function listWatched(db: Kysely<Database>): Promise<WatchedRally[]> {
   const rows = await db
     .selectFrom("watched_rally")
-    .select(["rally_id", "name"])
+    .select(["rally_id", "name", "channel_id"])
     .orderBy("added_at", "asc")
     .execute();
-  return rows.map((r) => ({ rallyId: r.rally_id, name: r.name }));
+  return rows.map((r) => ({ rallyId: r.rally_id, name: r.name, channelId: r.channel_id }));
 }

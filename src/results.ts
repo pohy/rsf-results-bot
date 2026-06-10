@@ -24,7 +24,7 @@ export function rallyIdFromUrl(input: string): number | null {
   return Number.isInteger(id) && id > 0 ? id : null;
 }
 
-const rallyDetailsUrl = (rallyId: number): string =>
+export const rallyDetailsUrl = (rallyId: number): string =>
   `${BASE}/rbr/rally_online.php?centerbox=rally_list_details.php&rally_id=${rallyId}`;
 
 // The rally name sits in the bold cell of the "Rally info" header table:

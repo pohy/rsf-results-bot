@@ -98,6 +98,10 @@ export interface UndeliveredComment {
   stageTitle: string | null;
   nickname: string;
   comment: string;
+  // Discord channel to post into, from watched_rally. Null when the rally was
+  // unwatched while a comment was still pending (the leftJoin yields no row); the
+  // cron routes those to the env fallback channel (see cron.ts runAndPost).
+  channelId: string | null;
 }
 
 // Every comment row not yet posted to Discord, oldest first. Picks up rows left
@@ -117,6 +121,7 @@ export async function selectUndelivered(db: Kysely<Database>): Promise<Undeliver
       "result.stage_no as stageNo",
       "result.user_id as userId",
       "watched_rally.name as rallyName",
+      "watched_rally.channel_id as channelId",
       "stage.title as stageTitle",
       "result.nickname as nickname",
       "result.comment as comment",
@@ -131,6 +136,7 @@ export async function selectUndelivered(db: Kysely<Database>): Promise<Undeliver
     stageNo: r.stageNo,
     userId: r.userId,
     rallyName: r.rallyName ?? `Rally ${r.rallyId}`,
+    channelId: r.channelId,
     stageTitle: r.stageTitle,
     nickname: r.nickname,
     // comment is non-null by the WHERE above; the column type is still nullable.

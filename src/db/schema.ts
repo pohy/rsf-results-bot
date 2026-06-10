@@ -47,6 +47,11 @@ export interface WatchedRallyTable {
   // — the suppression decision only applies to that first scrape (see cron.ts).
   send_old_comments: number;
   backfilled: number;
+  // Discord channel id this rally's comments post to, set by /watch add. Text,
+  // like added_by — channel ids are 64-bit snowflakes that exceed 2^53. NOT NULL:
+  // /watch add requires it for new rows, and the 0006 migration backfills existing
+  // rows to DISCORD_RESULTS_CHANNEL_ID (required at migration time).
+  channel_id: string;
 }
 
 export interface Database {

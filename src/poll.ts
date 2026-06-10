@@ -24,7 +24,7 @@ export interface PollableRally extends WatchedRally {
 export async function selectPollable(db: Kysely<Database>, now: number): Promise<PollableRally[]> {
   const rows = await db
     .selectFrom("watched_rally as w")
-    .select(["w.rally_id", "w.name", "w.send_old_comments", "w.backfilled"])
+    .select(["w.rally_id", "w.name", "w.channel_id", "w.send_old_comments", "w.backfilled"])
     .where((eb) =>
       eb.or([
         eb("w.deadline_at", "is", null),
@@ -45,6 +45,7 @@ export async function selectPollable(db: Kysely<Database>, now: number): Promise
   return rows.map((r) => ({
     rallyId: r.rally_id,
     name: r.name,
+    channelId: r.channel_id,
     sendOldComments: r.send_old_comments === 1,
     backfilled: r.backfilled === 1,
   }));
