@@ -49,6 +49,12 @@ const watchCommand = new SlashCommandBuilder()
           .setName("send_old_comments")
           .setDescription("Post the rally's existing comment backlog (default: no)")
           .setRequired(false),
+      )
+      .addBooleanOption((o) =>
+        o
+          .setName("include_rally_title")
+          .setDescription("Include the rally title in this rally's messages (default: no)")
+          .setRequired(false),
       ),
   )
   .addSubcommand((s) =>
@@ -84,6 +90,9 @@ async function handleAdd(
   // Default off: a freshly added rally usually has a full comment history we
   // don't want dumped into the channel; only future comments should post.
   const sendOldComments = interaction.options.getBoolean("send_old_comments") ?? false;
+  // Default off: comments are split by rally, so the title is redundant unless a
+  // channel hosts more than one rally.
+  const includeRallyTitle = interaction.options.getBoolean("include_rally_title") ?? false;
   const channelId = interaction.options.getChannel("channel", true).id;
   const added = await addWatched(db, {
     rallyId,
@@ -91,6 +100,7 @@ async function handleAdd(
     addedBy: interaction.user.id,
     addedAt: Date.now(),
     sendOldComments,
+    includeRallyTitle,
     channelId,
   });
   await interaction.editReply(

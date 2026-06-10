@@ -121,6 +121,11 @@ interface FormattedMessage {
 //   > Kuri Bush 2
 //   Other: *comment*
 //
+// runAndPost splits the backlog by rally before calling this, so a message
+// covers a single rally; the **Rally name** header is only emitted when that
+// rally opted into it (include_rally_title, default off) — otherwise it starts
+// at the stage header. The byRally grouping below still handles a multi-rally
+// input correctly, it just isn't fed one anymore.
 // The stage header is the scraped stage name, falling back to S<no> when no
 // title was stored. Rallies and driver names are ordered by localeCompare;
 // stages by stage number (numeric-aware so S2 sorts before S10). Comments are added until
@@ -163,7 +168,7 @@ function formatMessage(comments: UndeliveredComment[]): FormattedMessage {
       for (const d of drivers) {
         const driverLine = `${d.nickname}: *${d.comment}*`;
         const cand: string[] = [];
-        if (!rallyAdded) cand.push(`**${rallyName}**`);
+        if (!rallyAdded && d.includeRallyTitle) cand.push(`**${rallyName}**`);
         if (!stageAdded) cand.push(`> ${d.stageTitle ?? `S${stageNo}`}`);
         cand.push(driverLine);
         const addText = cand.reduce((n, l) => n + l.length, 0);
@@ -231,22 +236,23 @@ async function runAndPost(db: Kysely<Database>, env: CronEnv): Promise<void> {
     return;
   }
 
-  // Route each rally's comments to its own channel (watched_rally.channel_id),
-  // falling back to the env results channel for rows with no channel (orphaned
-  // comments whose rally was unwatched). Comments are batched per channel, never
-  // across channels, so a single message can't mix rallies bound to different
-  // rooms. Each channel's backlog still splits across as many messages as it needs.
-  const byChannel = new Map<string, UndeliveredComment[]>();
+  // Split the backlog by rally, so a message never mixes two rallies even when
+  // they share a channel. Each rally posts to its own channel
+  // (watched_rally.channel_id), falling back to the env results channel for rows
+  // with no channel (orphaned comments whose rally was unwatched — all such rows
+  // share rallyId/channel within a group). Each rally's backlog still splits
+  // across as many messages as it needs.
+  const byRally = new Map<number, UndeliveredComment[]>();
   for (const c of pending) {
-    const channelId = c.channelId ?? env.DISCORD_RESULTS_CHANNEL_ID;
-    const list = byChannel.get(channelId) ?? [];
+    const list = byRally.get(c.rallyId) ?? [];
     list.push(c);
-    byChannel.set(channelId, list);
+    byRally.set(c.rallyId, list);
   }
 
   let posted = 0;
   let messageCount = 0;
-  for (const [channelId, comments] of byChannel) {
+  for (const comments of byRally.values()) {
+    const channelId = comments[0].channelId ?? env.DISCORD_RESULTS_CHANNEL_ID;
     for (const { content, included } of formatMessages(comments)) {
       await postMessage(env, channelId, content);
       await markDelivered(db, included, Date.now());

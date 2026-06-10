@@ -47,6 +47,10 @@ export interface WatchedRallyTable {
   // — the suppression decision only applies to that first scrape (see cron.ts).
   send_old_comments: number;
   backfilled: number;
+  // 0/1 (no-boolean convention, see 0007 migration). Whether the rally's Discord
+  // posts include the **Rally name** header. Default 0: comments are split by
+  // rally, so the title is redundant unless a channel hosts more than one rally.
+  include_rally_title: number;
   // Discord channel id this rally's comments post to, set by /watch add. Text,
   // like added_by — channel ids are 64-bit snowflakes that exceed 2^53. NOT NULL:
   // /watch add requires it for new rows, and the 0006 migration backfills existing

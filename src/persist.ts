@@ -98,6 +98,9 @@ export interface UndeliveredComment {
   stageTitle: string | null;
   nickname: string;
   comment: string;
+  // Whether the rendered message includes the **Rally name** header, from
+  // watched_rally. False for orphaned comments (rally unwatched; no joined row).
+  includeRallyTitle: boolean;
   // Discord channel to post into, from watched_rally. Null when the rally was
   // unwatched while a comment was still pending (the leftJoin yields no row); the
   // cron routes those to the env fallback channel (see cron.ts runAndPost).
@@ -122,6 +125,7 @@ export async function selectUndelivered(db: Kysely<Database>): Promise<Undeliver
       "result.user_id as userId",
       "watched_rally.name as rallyName",
       "watched_rally.channel_id as channelId",
+      "watched_rally.include_rally_title as includeRallyTitle",
       "stage.title as stageTitle",
       "result.nickname as nickname",
       "result.comment as comment",
@@ -137,6 +141,8 @@ export async function selectUndelivered(db: Kysely<Database>): Promise<Undeliver
     userId: r.userId,
     rallyName: r.rallyName ?? `Rally ${r.rallyId}`,
     channelId: r.channelId,
+    // Null for orphaned comments (no watched_rally row) → omit the title.
+    includeRallyTitle: r.includeRallyTitle === 1,
     stageTitle: r.stageTitle,
     nickname: r.nickname,
     // comment is non-null by the WHERE above; the column type is still nullable.
