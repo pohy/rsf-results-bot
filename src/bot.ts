@@ -153,6 +153,16 @@ async function main() {
   const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
   client.once(Events.ClientReady, async (ready) => {
+    // Print the invite URL first: if the bot isn't in DISCORD_GUILD_ID yet,
+    // command registration below fails, so the link must be logged before it.
+    // Scopes: bot itself + slash-command registration. Permissions match what
+    // it needs — read channels and post results.
+    const invite = client.generateInvite({
+      scopes: [OAuth2Scopes.Bot, OAuth2Scopes.ApplicationsCommands],
+      permissions: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages],
+    });
+    logger.log(`invite: ${invite}`);
+
     // Register commands on startup, guild-scoped: idempotent and propagates
     // instantly (global registration would take ~1h).
     const rest = new REST().setToken(env.DISCORD_BOT_TOKEN);
@@ -162,15 +172,6 @@ async function main() {
     logger.log(
       `bot ready as ${ready.user.tag}; /watch registered to guild ${env.DISCORD_GUILD_ID}`,
     );
-
-    // Invite URL a server admin can open to add this bot to a guild. Scopes:
-    // bot itself + slash-command registration. Permissions match what it needs
-    // — read channels and post results.
-    const invite = client.generateInvite({
-      scopes: [OAuth2Scopes.Bot, OAuth2Scopes.ApplicationsCommands],
-      permissions: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages],
-    });
-    logger.log(`invite: ${invite}`);
   });
 
   client.on(Events.InteractionCreate, async (interaction) => {
