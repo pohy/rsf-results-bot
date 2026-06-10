@@ -4,6 +4,8 @@ import {
   Events,
   GatewayIntentBits,
   MessageFlags,
+  OAuth2Scopes,
+  PermissionFlagsBits,
   REST,
   Routes,
   SlashCommandBuilder,
@@ -120,6 +122,15 @@ async function main() {
     logger.log(
       `bot ready as ${ready.user.tag}; /watch registered to guild ${env.DISCORD_GUILD_ID}`,
     );
+
+    // Invite URL a server admin can open to add this bot to a guild. Scopes:
+    // bot itself + slash-command registration. Permissions match what it needs
+    // — read channels and post results.
+    const invite = client.generateInvite({
+      scopes: [OAuth2Scopes.Bot, OAuth2Scopes.ApplicationsCommands],
+      permissions: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages],
+    });
+    logger.log(`invite: ${invite}`);
   });
 
   client.on(Events.InteractionCreate, async (interaction) => {
