@@ -1,4 +1,5 @@
 import {
+  type AutocompleteInteraction,
   ChannelType,
   type ChatInputCommandInteraction,
   Client,
@@ -55,7 +56,11 @@ const watchCommand = new SlashCommandBuilder()
       .setName("remove")
       .setDescription("Stop watching a rally")
       .addIntegerOption((o) =>
-        o.setName("rally").setDescription("Rally id (from /watch list)").setRequired(true),
+        o
+          .setName("rally")
+          .setDescription("Rally to stop watching")
+          .setRequired(true)
+          .setAutocomplete(true),
       ),
   )
   .addSubcommand((s) => s.setName("list").setDescription("List watched rallies"));
@@ -107,6 +112,23 @@ async function handleRemove(
   });
 }
 
+// Suggest watched rallies for `/watch remove rally`, so the caller picks from a
+// list instead of copying an id out of /watch list. Discord caps a response at
+// 25 choices; the value is the integer rally id the remove handler expects.
+async function handleRemoveAutocomplete(
+  db: Kysely<Database>,
+  interaction: AutocompleteInteraction,
+): Promise<void> {
+  const focused = interaction.options.getFocused().toString().toLowerCase();
+  const rows = await listWatched(db);
+  const matches = rows.filter(
+    (r) => r.name.toLowerCase().includes(focused) || String(r.rallyId).includes(focused),
+  );
+  await interaction.respond(
+    matches.slice(0, 25).map((r) => ({ name: `${r.name} (${r.rallyId})`, value: r.rallyId })),
+  );
+}
+
 async function handleList(
   db: Kysely<Database>,
   interaction: ChatInputCommandInteraction,
@@ -152,6 +174,25 @@ async function main() {
   });
 
   client.on(Events.InteractionCreate, async (interaction) => {
+    // Autocomplete: same allowlist gate, but the only response shape is a choice
+    // list, so an unauthorized user just gets an empty list.
+    if (interaction.isAutocomplete() && interaction.commandName === "watch") {
+      if (!allowed.has(interaction.user.id)) {
+        await interaction.respond([]);
+        return;
+      }
+      try {
+        if (interaction.options.getSubcommand() === "remove") {
+          await handleRemoveAutocomplete(db, interaction);
+        } else {
+          await interaction.respond([]);
+        }
+      } catch (err) {
+        logger.error("watch autocomplete failed:", err);
+      }
+      return;
+    }
+
     if (!interaction.isChatInputCommand() || interaction.commandName !== "watch") return;
 
     // Gate every command to the allowlist.
