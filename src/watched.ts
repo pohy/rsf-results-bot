@@ -86,6 +86,83 @@ export async function completeBackfill(
   });
 }
 
+// Fields /watch edit can change. Each is optional: only the keys present are
+// written, so the caller passes just the options the user supplied. The URL /
+// rally_id is intentionally not editable (it identifies the row).
+export interface EditWatched {
+  sendOldComments?: boolean;
+  includeRallyTitle?: boolean;
+  channelId?: string;
+}
+
+// State of a rally after a successful edit, returned so the caller can report
+// what changed. backfilled is surfaced because editing sendOldComments after the
+// first scrape (backfilled = 1) is a no-op — the suppression decision only ever
+// applies to that first scrape (see completeBackfill / cron.ts).
+export interface EditedRally {
+  rallyId: number;
+  name: string;
+  sendOldComments: boolean;
+  includeRallyTitle: boolean;
+  channelId: string;
+  backfilled: boolean;
+}
+
+// Apply a partial edit to a watched rally. Returns null when the rally isn't
+// watched. The existence check and update share a transaction so the returned
+// post-edit state is consistent. Passing an empty edit is a programming error
+// (the caller enforces "at least one field"); it would write nothing and still
+// return the current row.
+export async function editWatched(
+  db: Kysely<Database>,
+  rallyId: number,
+  edit: EditWatched,
+): Promise<EditedRally | null> {
+  return db.transaction().execute(async (trx) => {
+    const existing = await trx
+      .selectFrom("watched_rally")
+      .select("rally_id")
+      .where("rally_id", "=", rallyId)
+      .executeTakeFirst();
+    if (!existing) return null;
+
+    const values = {
+      ...(edit.sendOldComments !== undefined && {
+        send_old_comments: edit.sendOldComments ? 1 : 0,
+      }),
+      ...(edit.includeRallyTitle !== undefined && {
+        include_rally_title: edit.includeRallyTitle ? 1 : 0,
+      }),
+      ...(edit.channelId !== undefined && { channel_id: edit.channelId }),
+    };
+
+    if (Object.keys(values).length > 0) {
+      await trx.updateTable("watched_rally").set(values).where("rally_id", "=", rallyId).execute();
+    }
+
+    const row = await trx
+      .selectFrom("watched_rally")
+      .select([
+        "rally_id",
+        "name",
+        "send_old_comments",
+        "include_rally_title",
+        "channel_id",
+        "backfilled",
+      ])
+      .where("rally_id", "=", rallyId)
+      .executeTakeFirstOrThrow();
+    return {
+      rallyId: row.rally_id,
+      name: row.name,
+      sendOldComments: row.send_old_comments === 1,
+      includeRallyTitle: row.include_rally_title === 1,
+      channelId: row.channel_id,
+      backfilled: row.backfilled === 1,
+    };
+  });
+}
+
 // Remove a watched rally. Returns false when nothing matched.
 export async function removeWatched(db: Kysely<Database>, rallyId: number): Promise<boolean> {
   const res = await db

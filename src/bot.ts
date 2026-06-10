@@ -18,7 +18,7 @@ import type { Database } from "./db/schema.js";
 import { loadBotEnv } from "./env.js";
 import { makeLogger } from "./logger.js";
 import { fetchRallyName, rallyDetailsUrl, rallyIdFromUrl } from "./results.js";
-import { addWatched, listWatched, removeWatched } from "./watched.js";
+import { addWatched, editWatched, listWatched, removeWatched } from "./watched.js";
 
 // Discord bot for managing the watched-rally list. Gateway connection (not a
 // webhook) so it can receive slash commands. It only reads/writes watched_rally
@@ -26,12 +26,25 @@ import { addWatched, listWatched, removeWatched } from "./watched.js";
 
 const logger = makeLogger("bot");
 
+// Command/subcommand names live in one place so registration and dispatch can't
+// drift on a typo (a mistyped literal would just silently never match).
+enum Command {
+  Watch = "watch",
+}
+
+enum Sub {
+  Add = "add",
+  Remove = "remove",
+  Edit = "edit",
+  List = "list",
+}
+
 const watchCommand = new SlashCommandBuilder()
-  .setName("watch")
+  .setName(Command.Watch)
   .setDescription("Manage watched rallies")
   .addSubcommand((s) =>
     s
-      .setName("add")
+      .setName(Sub.Add)
       .setDescription("Watch a rally by its URL")
       .addStringOption((o) =>
         o.setName("url").setDescription("Rally URL from rallysimfans.hu").setRequired(true),
@@ -59,7 +72,7 @@ const watchCommand = new SlashCommandBuilder()
   )
   .addSubcommand((s) =>
     s
-      .setName("remove")
+      .setName(Sub.Remove)
       .setDescription("Stop watching a rally")
       .addIntegerOption((o) =>
         o
@@ -69,7 +82,36 @@ const watchCommand = new SlashCommandBuilder()
           .setAutocomplete(true),
       ),
   )
-  .addSubcommand((s) => s.setName("list").setDescription("List watched rallies"));
+  .addSubcommand((s) =>
+    s
+      .setName(Sub.Edit)
+      .setDescription("Change a watched rally's settings (the URL can't be changed)")
+      .addIntegerOption((o) =>
+        o.setName("rally").setDescription("Rally to edit").setRequired(true).setAutocomplete(true),
+      )
+      // All optional; the handler rejects a call with none set (Discord can't
+      // express "at least one of these").
+      .addChannelOption((o) =>
+        o
+          .setName("channel")
+          .setDescription("Channel to post this rally's comments in")
+          .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
+          .setRequired(false),
+      )
+      .addBooleanOption((o) =>
+        o
+          .setName("send_old_comments")
+          .setDescription("Post the rally's existing comment backlog")
+          .setRequired(false),
+      )
+      .addBooleanOption((o) =>
+        o
+          .setName("include_rally_title")
+          .setDescription("Include the rally title in this rally's messages")
+          .setRequired(false),
+      ),
+  )
+  .addSubcommand((s) => s.setName(Sub.List).setDescription("List watched rallies"));
 
 async function handleAdd(
   db: Kysely<Database>,
@@ -122,10 +164,59 @@ async function handleRemove(
   });
 }
 
-// Suggest watched rallies for `/watch remove rally`, so the caller picks from a
-// list instead of copying an id out of /watch list. Discord caps a response at
-// 25 choices; the value is the integer rally id the remove handler expects.
-async function handleRemoveAutocomplete(
+async function handleEdit(
+  db: Kysely<Database>,
+  interaction: ChatInputCommandInteraction,
+): Promise<void> {
+  const rallyId = interaction.options.getInteger("rally", true);
+  const channel = interaction.options.getChannel("channel");
+  const sendOldComments = interaction.options.getBoolean("send_old_comments");
+  const includeRallyTitle = interaction.options.getBoolean("include_rally_title");
+
+  // Require at least one field: Discord marks them all optional, so an
+  // otherwise-valid call could change nothing.
+  if (channel === null && sendOldComments === null && includeRallyTitle === null) {
+    await interaction.reply({
+      content: "Set at least one option to change.",
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  // Pass only the supplied options through (getBoolean/getChannel return null
+  // when absent); editWatched writes just the present keys.
+  const edited = await editWatched(db, rallyId, {
+    ...(channel !== null && { channelId: channel.id }),
+    ...(sendOldComments !== null && { sendOldComments }),
+    ...(includeRallyTitle !== null && { includeRallyTitle }),
+  });
+  if (!edited) {
+    await interaction.reply({
+      content: `Rally ${rallyId} isn't being watched.`,
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const lines = [`Updated **${edited.name}** (${edited.rallyId}):`];
+  if (channel !== null) lines.push(`• channel → <#${edited.channelId}>`);
+  if (sendOldComments !== null) lines.push(`• send_old_comments → ${edited.sendOldComments}`);
+  if (includeRallyTitle !== null) lines.push(`• include_rally_title → ${edited.includeRallyTitle}`);
+  // send_old_comments only takes effect on the first scrape; warn if that's
+  // already past so the user knows the toggle did nothing functional.
+  if (sendOldComments !== null && edited.backfilled) {
+    lines.push(
+      "_Note: this rally is already backfilled, so send_old_comments no longer affects anything._",
+    );
+  }
+  await interaction.reply({ content: lines.join("\n"), flags: MessageFlags.Ephemeral });
+}
+
+// Suggest watched rallies for the `rally` option of `/watch remove` and
+// `/watch edit`, so the caller picks from a list instead of copying an id out of
+// /watch list. Discord caps a response at 25 choices; the value is the integer
+// rally id both handlers expect.
+async function handleRallyAutocomplete(
   db: Kysely<Database>,
   interaction: AutocompleteInteraction,
 ): Promise<void> {
@@ -187,14 +278,15 @@ async function main() {
   client.on(Events.InteractionCreate, async (interaction) => {
     // Autocomplete: same allowlist gate, but the only response shape is a choice
     // list, so an unauthorized user just gets an empty list.
-    if (interaction.isAutocomplete() && interaction.commandName === "watch") {
+    if (interaction.isAutocomplete() && interaction.commandName === Command.Watch) {
       if (!allowed.has(interaction.user.id)) {
         await interaction.respond([]);
         return;
       }
       try {
-        if (interaction.options.getSubcommand() === "remove") {
-          await handleRemoveAutocomplete(db, interaction);
+        const sub = interaction.options.getSubcommand();
+        if (sub === Sub.Remove || sub === Sub.Edit) {
+          await handleRallyAutocomplete(db, interaction);
         } else {
           await interaction.respond([]);
         }
@@ -204,7 +296,7 @@ async function main() {
       return;
     }
 
-    if (!interaction.isChatInputCommand() || interaction.commandName !== "watch") return;
+    if (!interaction.isChatInputCommand() || interaction.commandName !== Command.Watch) return;
 
     // Gate every command to the allowlist.
     if (!allowed.has(interaction.user.id)) {
@@ -214,9 +306,10 @@ async function main() {
 
     try {
       const sub = interaction.options.getSubcommand();
-      if (sub === "add") await handleAdd(db, interaction);
-      else if (sub === "remove") await handleRemove(db, interaction);
-      else if (sub === "list") await handleList(db, interaction);
+      if (sub === Sub.Add) await handleAdd(db, interaction);
+      else if (sub === Sub.Remove) await handleRemove(db, interaction);
+      else if (sub === Sub.Edit) await handleEdit(db, interaction);
+      else if (sub === Sub.List) await handleList(db, interaction);
     } catch (err) {
       logger.error("watch command failed:", err);
       const msg = "Command failed. Try again.";
