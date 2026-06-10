@@ -91,9 +91,10 @@ async function runPass(db: Kysely<Database>, env: CronEnv): Promise<void> {
   }
 }
 
-// Discord caps a message at 2000 chars. We post one message per pass and the
-// caller only marks the comments it actually contained as delivered, so anything
-// that doesn't fit stays undelivered and goes out next pass — nothing is dropped.
+// Discord caps a message at 2000 chars. A pass packs the whole backlog into as
+// many messages as it takes (see formatMessages) and posts them all in the same
+// pass; the caller marks each message's comments delivered only after that
+// message posts, so anything not yet posted stays undelivered — nothing is dropped.
 const DISCORD_LIMIT = 2000;
 
 interface FormattedMessage {
@@ -115,9 +116,10 @@ interface FormattedMessage {
 // stages by stage number (numeric-aware so S2 sorts before S10). Comments are added until
 // the next one wouldn't fit under DISCORD_LIMIT, and a rally/stage header is only
 // emitted once a comment beneath it fits — so the message never ends on a
-// dangling header, and the comments left out simply carry to the next pass. If
-// the very first comment's line alone exceeds the limit it's truncated and still
-// included, so one over-long comment can't wedge the queue forever.
+// dangling header, and the comments left out are packed into the next message by
+// formatMessages. If the very first comment's line alone exceeds the limit it's
+// truncated and still included, so one over-long comment can't wedge the queue
+// forever.
 function formatMessage(comments: UndeliveredComment[]): FormattedMessage {
   const byRally = new Map<string, Map<number, UndeliveredComment[]>>();
   for (const c of comments) {
@@ -181,17 +183,35 @@ function formatMessage(comments: UndeliveredComment[]): FormattedMessage {
   return { content: lines.join("\n"), included };
 }
 
+// Pack the entire backlog into a sequence of messages, each under DISCORD_LIMIT.
+// formatMessage packs one message's worth and reports which comments it included;
+// we drop those and repeat on the rest until none remain. formatMessage always
+// includes at least one comment per call when given a non-empty list (the
+// over-long-comment case truncates rather than skipping), so this terminates.
+function formatMessages(comments: UndeliveredComment[]): FormattedMessage[] {
+  const messages: FormattedMessage[] = [];
+  let remaining = comments;
+  while (remaining.length > 0) {
+    const message = formatMessage(remaining);
+    messages.push(message);
+    const included = new Set(message.included);
+    remaining = remaining.filter((c) => !included.has(c));
+  }
+  return messages;
+}
+
 async function postMessage(env: CronEnv, content: string): Promise<void> {
   // REST-only (no gateway): the cron just posts, it doesn't receive events.
   const rest = new REST().setToken(env.DISCORD_BOT_TOKEN);
   await rest.post(Routes.channelMessages(env.DISCORD_RESULTS_CHANNEL_ID), { body: { content } });
 }
 
-// One scrape pass plus its single Discord post. The pass persists new comments
+// One scrape pass plus its Discord posts. The pass persists new comments
 // undelivered; we then post every undelivered comment (including any left over
-// from an earlier failed post) and only stamp them delivered once the post
-// succeeds. If the post throws, delivered_at stays null and the comments are
-// retried next pass instead of being lost.
+// from an earlier failed post), splitting across as many messages as the backlog
+// needs and stamping each message's comments delivered only once that message
+// posts. If a post throws, the already-posted messages stay delivered and the
+// rest keep delivered_at null, so they're retried next pass instead of lost.
 async function runAndPost(db: Kysely<Database>, env: CronEnv): Promise<void> {
   await runPass(db, env);
 
@@ -201,15 +221,15 @@ async function runAndPost(db: Kysely<Database>, env: CronEnv): Promise<void> {
     return;
   }
 
-  const { content, included } = formatMessage(pending);
-  await postMessage(env, content);
-  await markDelivered(db, included, Date.now());
+  const messages = formatMessages(pending);
+  let posted = 0;
+  for (const { content, included } of messages) {
+    await postMessage(env, content);
+    await markDelivered(db, included, Date.now());
+    posted += included.length;
+  }
 
-  const carried = pending.length - included.length;
-  logger.log(
-    `posted ${included.length} comment(s)` +
-      (carried > 0 ? `; ${carried} didn't fit, will post next run` : ""),
-  );
+  logger.log(`posted ${posted} comment(s) in ${messages.length} message(s)`);
 }
 
 async function main(): Promise<void> {
