@@ -163,13 +163,26 @@ export async function editWatched(
   });
 }
 
-// Remove a watched rally. Returns false when nothing matched.
+// Remove a watched rally, cascade-deleting its scraped data (result + stage
+// rows). Returns false when no watch matched. The cascade is what makes a later
+// re-add behave like a fresh watch: without it the old result rows survive with
+// delivered_at stamped, so re-adding with send_old_comments = 1 would skip the
+// backlog (the comments look already-delivered). Dropping them means the first
+// scrape after re-add re-inserts the rows undelivered and completeBackfill
+// applies the new send_old_comments choice in that same pass. All three deletes
+// share one transaction so a crash can't orphan result/stage rows from a removed
+// watch (which selectUndelivered would then post to the fallback channel).
 export async function removeWatched(db: Kysely<Database>, rallyId: number): Promise<boolean> {
-  const res = await db
-    .deleteFrom("watched_rally")
-    .where("rally_id", "=", rallyId)
-    .executeTakeFirst();
-  return (res.numDeletedRows ?? 0n) > 0n;
+  return db.transaction().execute(async (trx) => {
+    const res = await trx
+      .deleteFrom("watched_rally")
+      .where("rally_id", "=", rallyId)
+      .executeTakeFirst();
+    if ((res.numDeletedRows ?? 0n) === 0n) return false;
+    await trx.deleteFrom("result").where("rally_id", "=", rallyId).execute();
+    await trx.deleteFrom("stage").where("rally_id", "=", rallyId).execute();
+    return true;
+  });
 }
 
 // Refresh deadline_at for the given rallies (keyed by rally_id). Only rows that
