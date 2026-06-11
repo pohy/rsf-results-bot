@@ -169,7 +169,8 @@ function formatMessage(comments: UndeliveredComment[]): FormattedMessage {
         const driverLine = `${d.nickname}: *${d.comment}*`;
         const cand: string[] = [];
         if (!rallyAdded && d.includeRallyTitle) cand.push(`**${rallyName}**`);
-        if (!stageAdded) cand.push(`> ${d.stageTitle ?? `S${stageNo}`}`);
+        if (!stageAdded)
+          cand.push(`> S${stageNo}${d.stageTitle ? ` - ${d.stageTitle}` : ""}`);
         cand.push(driverLine);
         const addText = cand.reduce((n, l) => n + l.length, 0);
 
