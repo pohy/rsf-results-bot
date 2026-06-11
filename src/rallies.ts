@@ -12,6 +12,10 @@ const listUrl = (): string => `${BASE}/rbr/rally_online.php`;
 export const RallyMetaSchema = z.object({
   rallyId: z.number().int().positive(),
   name: z.string().min(1),
+  // Epoch ms. The list prints open time as `MM-DD HH:MM` with no year (the same
+  // cell's first segment); see parseListDatetime. Null when the open segment is
+  // missing or unparseable — close time alone still drives finished-detection.
+  startAt: z.number().int().nullable(),
   // Epoch ms. The list prints close time as `MM-DD HH:MM` with no year; see
   // parseListDatetime for year inference and timezone handling.
   deadlineAt: z.number().int(),
@@ -81,14 +85,18 @@ export function parseRallyList(html: string, nowMs: number): RallyMeta[] {
     const rallyId = Number(href.match(/rally_id=(\d+)/)?.[1]);
     const name = $name.find("a").first().text().trim();
 
-    // `td.rally_list_open` holds `opens<br>closes`; the close time is the deadline.
+    // `td.rally_list_open` holds `opens<br>closes`; the first segment is the open
+    // time, the last is the close (deadline). A single-segment cell is treated as
+    // close-only (startAt null) — finished-detection only needs the close time.
     const openHtml = $tr.find("td.rally_list_open").html() ?? "";
     const segments = openHtml.split(/<br\s*\/?>/i).map((s) => cheerio.load(s).text().trim());
     const closeRaw = segments[segments.length - 1] ?? "";
+    const openRaw = segments.length > 1 ? (segments[0] ?? "") : "";
     const deadlineAt = parseListDatetime(closeRaw, nowMs);
     if (deadlineAt === null) return;
+    const startAt = openRaw ? parseListDatetime(openRaw, nowMs) : null;
 
-    const parsed = RallyMetaSchema.safeParse({ rallyId, name, deadlineAt });
+    const parsed = RallyMetaSchema.safeParse({ rallyId, name, startAt, deadlineAt });
     if (parsed.success) out.push(parsed.data);
   });
   return out;

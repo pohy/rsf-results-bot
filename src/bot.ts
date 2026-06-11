@@ -19,7 +19,22 @@ import type { Database } from "./db/schema.js";
 import { loadBotEnv } from "./env.js";
 import { makeLogger } from "./logger.js";
 import { fetchRallyName, rallyDetailsUrl, rallyIdFromUrl } from "./results.js";
-import { addWatched, editWatched, listWatched, removeWatched } from "./watched.js";
+import {
+  addWatched,
+  editWatched,
+  listWatched,
+  type RallyTitleMode,
+  removeWatched,
+} from "./watched.js";
+
+// Choices for the include_rally_title option, shared by /watch add and /watch
+// edit. The choice names spell out each mode so the Discord picker is
+// self-explanatory; the values match RallyTitleMode.
+const TITLE_MODE_CHOICES = [
+  { name: "Off — never show the rally title", value: "off" },
+  { name: "On — always show the rally title", value: "on" },
+  { name: "Contextual — show only when the channel's last title differs", value: "contextual" },
+] as const;
 
 // Discord bot for managing the watched-rally list. Gateway connection (not a
 // webhook) so it can receive slash commands. It only reads/writes watched_rally
@@ -64,11 +79,12 @@ const watchCommand = new SlashCommandBuilder()
           .setDescription("Post the rally's existing comment backlog (default: no)")
           .setRequired(false),
       )
-      .addBooleanOption((o) =>
+      .addStringOption((o) =>
         o
           .setName("include_rally_title")
-          .setDescription("Include the rally title in this rally's messages (default: no)")
-          .setRequired(false),
+          .setDescription("Show the rally title in this rally's messages (default: Contextual)")
+          .setRequired(false)
+          .addChoices(...TITLE_MODE_CHOICES),
       ),
   )
   .addSubcommand((s) =>
@@ -105,11 +121,12 @@ const watchCommand = new SlashCommandBuilder()
           .setDescription("Post the rally's existing comment backlog")
           .setRequired(false),
       )
-      .addBooleanOption((o) =>
+      .addStringOption((o) =>
         o
           .setName("include_rally_title")
-          .setDescription("Include the rally title in this rally's messages")
-          .setRequired(false),
+          .setDescription("Show the rally title in this rally's messages")
+          .setRequired(false)
+          .addChoices(...TITLE_MODE_CHOICES),
       ),
   )
   .addSubcommand((s) => s.setName(Sub.List).setDescription("List watched rallies"));
@@ -133,9 +150,12 @@ async function handleAdd(
   // Default off: a freshly added rally usually has a full comment history we
   // don't want dumped into the channel; only future comments should post.
   const sendOldComments = interaction.options.getBoolean("send_old_comments") ?? false;
-  // Default off: comments are split by rally, so the title is redundant unless a
-  // channel hosts more than one rally.
-  const includeRallyTitle = interaction.options.getBoolean("include_rally_title") ?? false;
+  // Default contextual: show the title only when the channel's last header isn't
+  // this rally, so it heads a block on switch-in and stays quiet on continuation.
+  // The option's choices constrain the string to a RallyTitleMode, so the cast is
+  // safe.
+  const rallyTitleMode = (interaction.options.getString("include_rally_title") ??
+    "contextual") as RallyTitleMode;
   const channelId = interaction.options.getChannel("channel", true).id;
   const added = await addWatched(db, {
     rallyId,
@@ -143,7 +163,7 @@ async function handleAdd(
     addedBy: interaction.user.id,
     addedAt: Date.now(),
     sendOldComments,
-    includeRallyTitle,
+    rallyTitleMode,
     channelId,
   });
   await interaction.editReply(
@@ -172,11 +192,14 @@ async function handleEdit(
   const rallyId = interaction.options.getInteger("rally", true);
   const channel = interaction.options.getChannel("channel");
   const sendOldComments = interaction.options.getBoolean("send_old_comments");
-  const includeRallyTitle = interaction.options.getBoolean("include_rally_title");
+  // Choices constrain the string to a RallyTitleMode (or null when absent).
+  const rallyTitleMode = interaction.options.getString(
+    "include_rally_title",
+  ) as RallyTitleMode | null;
 
   // Require at least one field: Discord marks them all optional, so an
   // otherwise-valid call could change nothing.
-  if (channel === null && sendOldComments === null && includeRallyTitle === null) {
+  if (channel === null && sendOldComments === null && rallyTitleMode === null) {
     await interaction.reply({
       content: "Set at least one option to change.",
       flags: MessageFlags.Ephemeral,
@@ -184,12 +207,12 @@ async function handleEdit(
     return;
   }
 
-  // Pass only the supplied options through (getBoolean/getChannel return null
-  // when absent); editWatched writes just the present keys.
+  // Pass only the supplied options through (getString/getBoolean/getChannel return
+  // null when absent); editWatched writes just the present keys.
   const edited = await editWatched(db, rallyId, {
     ...(channel !== null && { channelId: channel.id }),
     ...(sendOldComments !== null && { sendOldComments }),
-    ...(includeRallyTitle !== null && { includeRallyTitle }),
+    ...(rallyTitleMode !== null && { rallyTitleMode }),
   });
   if (!edited) {
     await interaction.reply({
@@ -202,7 +225,7 @@ async function handleEdit(
   const lines = [`Updated **${edited.name}** (${edited.rallyId}):`];
   if (channel !== null) lines.push(`• channel → <#${edited.channelId}>`);
   if (sendOldComments !== null) lines.push(`• send_old_comments → ${edited.sendOldComments}`);
-  if (includeRallyTitle !== null) lines.push(`• include_rally_title → ${edited.includeRallyTitle}`);
+  if (rallyTitleMode !== null) lines.push(`• include_rally_title → ${edited.rallyTitleMode}`);
   // send_old_comments only takes effect on the first scrape; warn if that's
   // already past so the user knows the toggle did nothing functional.
   if (sendOldComments !== null && edited.backfilled) {

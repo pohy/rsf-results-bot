@@ -3,6 +3,11 @@ import type { Database } from "./db/schema.js";
 
 // Queries over the watched_rally table. The Discord bot is the only writer.
 
+// How a rally's posts treat the **Rally name** header. 'off': never; 'on':
+// always; 'contextual': only when the channel's most recent rally header isn't
+// this rally (see cron.ts). Mirrors watched_rally.rally_title_mode.
+export type RallyTitleMode = "off" | "on" | "contextual";
+
 export interface WatchedRally {
   rallyId: number;
   name: string;
@@ -18,9 +23,10 @@ export interface AddWatched {
   // Stored as 0/1; backfilled starts at 0 so the cron's first pass applies this
   // choice (see completeBackfill / cron.ts).
   sendOldComments: boolean;
-  // Whether the rally's Discord posts include the **Rally name** header. Stored
-  // as 0/1; default off (comments split by rally make the title redundant).
-  includeRallyTitle: boolean;
+  // How the rally's Discord posts treat the **Rally name** header; default
+  // 'contextual' (header on rally switch-in, quiet on continuation). See
+  // RallyTitleMode.
+  rallyTitleMode: RallyTitleMode;
   // Discord channel id this rally's comments post to (required by /watch add).
   channelId: string;
 }
@@ -47,7 +53,7 @@ export async function addWatched(db: Kysely<Database>, w: AddWatched): Promise<b
         send_old_comments: w.sendOldComments ? 1 : 0,
         // Not yet scraped; the cron's first pass runs the backlog decision.
         backfilled: 0,
-        include_rally_title: w.includeRallyTitle ? 1 : 0,
+        rally_title_mode: w.rallyTitleMode,
         channel_id: w.channelId,
       })
       .execute();
@@ -91,7 +97,7 @@ export async function completeBackfill(
 // rally_id is intentionally not editable (it identifies the row).
 export interface EditWatched {
   sendOldComments?: boolean;
-  includeRallyTitle?: boolean;
+  rallyTitleMode?: RallyTitleMode;
   channelId?: string;
 }
 
@@ -103,7 +109,7 @@ export interface EditedRally {
   rallyId: number;
   name: string;
   sendOldComments: boolean;
-  includeRallyTitle: boolean;
+  rallyTitleMode: RallyTitleMode;
   channelId: string;
   backfilled: boolean;
 }
@@ -130,8 +136,8 @@ export async function editWatched(
       ...(edit.sendOldComments !== undefined && {
         send_old_comments: edit.sendOldComments ? 1 : 0,
       }),
-      ...(edit.includeRallyTitle !== undefined && {
-        include_rally_title: edit.includeRallyTitle ? 1 : 0,
+      ...(edit.rallyTitleMode !== undefined && {
+        rally_title_mode: edit.rallyTitleMode,
       }),
       ...(edit.channelId !== undefined && { channel_id: edit.channelId }),
     };
@@ -146,7 +152,7 @@ export async function editWatched(
         "rally_id",
         "name",
         "send_old_comments",
-        "include_rally_title",
+        "rally_title_mode",
         "channel_id",
         "backfilled",
       ])
@@ -156,7 +162,7 @@ export async function editWatched(
       rallyId: row.rally_id,
       name: row.name,
       sendOldComments: row.send_old_comments === 1,
-      includeRallyTitle: row.include_rally_title === 1,
+      rallyTitleMode: row.rally_title_mode,
       channelId: row.channel_id,
       backfilled: row.backfilled === 1,
     };
@@ -185,22 +191,27 @@ export async function removeWatched(db: Kysely<Database>, rallyId: number): Prom
   });
 }
 
-// Refresh deadline_at for the given rallies (keyed by rally_id). Only rows that
-// are actually watched are touched; ids not in watched_rally are ignored. Run
-// per cron pass from the rally list so the poller's "finished" check stays
-// current. Returns the number of watched rows updated.
+// Refresh start_at/deadline_at for the given rallies (keyed by rally_id). Only
+// rows that are actually watched are touched; ids not in watched_rally are
+// ignored. Run per cron pass from the rally list so the poller's "finished"
+// check (deadline) and the contextual title scan's floor (start) stay current.
+// start_at is only written when the list carried an open time — a null means
+// "unknown this pass", not "clear it". Returns the number of watched rows updated.
 export async function updateDeadlines(
   db: Kysely<Database>,
-  deadlines: ReadonlyArray<{ rallyId: number; deadlineAt: number }>,
+  rallies: ReadonlyArray<{ rallyId: number; startAt: number | null; deadlineAt: number }>,
 ): Promise<number> {
-  if (deadlines.length === 0) return 0;
+  if (rallies.length === 0) return 0;
   return db.transaction().execute(async (trx) => {
     let updated = 0;
-    for (const d of deadlines) {
+    for (const rally of rallies) {
       const res = await trx
         .updateTable("watched_rally")
-        .set({ deadline_at: d.deadlineAt })
-        .where("rally_id", "=", d.rallyId)
+        .set({
+          deadline_at: rally.deadlineAt,
+          ...(rally.startAt !== null && { start_at: rally.startAt }),
+        })
+        .where("rally_id", "=", rally.rallyId)
         .executeTakeFirst();
       updated += Number(res.numUpdatedRows ?? 0n);
     }

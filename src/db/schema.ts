@@ -43,16 +43,22 @@ export interface WatchedRallyTable {
   // the cron first sees the rally on the list; a null deadline means "keep
   // polling" — the poller can't tell it's finished. See poll.ts / cron.ts.
   deadline_at: number | null;
+  // Epoch-ms open time scraped from the same rally-list cell as deadline_at (its
+  // first segment). Null until the cron first sees the rally on the list. Bounds
+  // how far back the contextual title scan reads channel history (see cron.ts).
+  start_at: number | null;
   // 0/1 (no-boolean convention, see 0005 migration). send_old_comments: whether
   // the rally's pre-existing comment backlog is posted on the first scrape (1) or
   // suppressed (0). backfilled: 0 until that first full scrape completes, 1 after
   // — the suppression decision only applies to that first scrape (see cron.ts).
   send_old_comments: number;
   backfilled: number;
-  // 0/1 (no-boolean convention, see 0007 migration). Whether the rally's Discord
-  // posts include the **Rally name** header. Default 0: comments are split by
-  // rally, so the title is redundant unless a channel hosts more than one rally.
-  include_rally_title: number;
+  // How the rally's Discord posts treat the **Rally name** header (see 0009
+  // migration). 'off': never; 'on': always; 'contextual': only when the channel's
+  // most recent rally header isn't this rally (the scan reads back to start_at).
+  // Default 'contextual': heads a block when the channel switches rally, stays
+  // quiet on continuation — the right call whether or not a channel is shared.
+  rally_title_mode: "off" | "on" | "contextual";
   // Discord channel id this rally's comments post to, set by /watch add. Text,
   // like added_by — channel ids are 64-bit snowflakes that exceed 2^53. NOT NULL:
   // /watch add requires it for new rows, and the 0006 migration backfills existing

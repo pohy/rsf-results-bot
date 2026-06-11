@@ -122,10 +122,11 @@ interface FormattedMessage {
 //   (SR) *comment* — __Other__
 //
 // runAndPost splits the backlog by rally before calling this, so a message
-// covers a single rally; the **Rally name** header is only emitted when that
-// rally opted into it (include_rally_title, default off) — otherwise it starts
-// at the stage header. The byRally grouping below still handles a multi-rally
-// input correctly, it just isn't fed one anymore.
+// covers a single rally; the **Rally name** header is only emitted when the
+// caller passes includeTitle (resolved from the rally's rally_title_mode —
+// see runAndPost) — otherwise it starts at the stage header. The byRally
+// grouping below still handles a multi-rally input correctly, it just isn't fed
+// one anymore.
 // The stage header is the scraped stage name, falling back to S<no> when no
 // title was stored. Rallies and driver names are ordered by localeCompare;
 // stages by stage number (numeric-aware so S2 sorts before S10). Comments are added until
@@ -135,7 +136,7 @@ interface FormattedMessage {
 // formatMessages. If the very first comment's line alone exceeds the limit it's
 // truncated and still included, so one over-long comment can't wedge the queue
 // forever.
-function formatMessage(comments: UndeliveredComment[]): FormattedMessage {
+function formatMessage(comments: UndeliveredComment[], includeTitle: boolean): FormattedMessage {
   const byRally = new Map<string, Map<number, UndeliveredComment[]>>();
   for (const c of comments) {
     const stages = byRally.get(c.rallyName) ?? new Map<number, UndeliveredComment[]>();
@@ -169,18 +170,18 @@ function formatMessage(comments: UndeliveredComment[]): FormattedMessage {
         // Super Rally rows (a restart) have no finishing position; prefix them
         // with "(SR)" so they stand out. See UndeliveredComment.position.
         const driverLine = `${d.position === null ? "(SR) " : ""}*${d.comment}* — __${d.nickname}__`;
-        const cand: string[] = [];
-        if (!rallyAdded && d.includeRallyTitle) cand.push(`**${rallyName}**`);
+        const candidateLines: string[] = [];
+        if (!rallyAdded && includeTitle) candidateLines.push(`**${rallyName}**`);
         if (!stageAdded)
-          cand.push(`> S${stageNo}${d.stageTitle ? ` - ${d.stageTitle}` : ""}`);
-        cand.push(driverLine);
-        const addText = cand.reduce((n, l) => n + l.length, 0);
+          candidateLines.push(`> S${stageNo}${d.stageTitle ? ` - ${d.stageTitle}` : ""}`);
+        candidateLines.push(driverLine);
+        const addText = candidateLines.reduce((n, l) => n + l.length, 0);
 
-        if (joinedLen(addText, cand.length) > DISCORD_LIMIT) {
+        if (joinedLen(addText, candidateLines.length) > DISCORD_LIMIT) {
           // Nothing committed yet and even this first comment overflows: truncate
           // its line to fit so the backlog can still drain, then stop.
           if (lines.length === 0) {
-            const headers = cand.slice(0, -1);
+            const headers = candidateLines.slice(0, -1);
             const headerText = headers.reduce((n, l) => n + l.length, 0);
             const room = DISCORD_LIMIT - headerText - headers.length;
             lines.push(...headers, driverLine.slice(0, Math.max(0, room)));
@@ -189,7 +190,7 @@ function formatMessage(comments: UndeliveredComment[]): FormattedMessage {
           break outer;
         }
 
-        lines.push(...cand);
+        lines.push(...candidateLines);
         textSum += addText;
         rallyAdded = true;
         stageAdded = true;
@@ -206,16 +207,112 @@ function formatMessage(comments: UndeliveredComment[]): FormattedMessage {
 // we drop those and repeat on the rest until none remain. formatMessage always
 // includes at least one comment per call when given a non-empty list (the
 // over-long-comment case truncates rather than skipping), so this terminates.
-function formatMessages(comments: UndeliveredComment[]): FormattedMessage[] {
+//
+// includeTitle applies to the first message only: when a rally's backlog spans
+// several messages, the **Rally name** header heads the block once rather than
+// repeating atop every chunk.
+function formatMessages(comments: UndeliveredComment[], includeTitle: boolean): FormattedMessage[] {
   const messages: FormattedMessage[] = [];
   let remaining = comments;
+  let titleForThis = includeTitle;
   while (remaining.length > 0) {
-    const message = formatMessage(remaining);
+    const message = formatMessage(remaining, titleForThis);
     messages.push(message);
+    titleForThis = false;
     const included = new Set(message.included);
     remaining = remaining.filter((c) => !included.has(c));
   }
   return messages;
+}
+
+// The Discord epoch (2015-01-01 UTC): a snowflake's high 42 bits are ms since
+// this, so an id alone yields the message's creation time without a timestamp
+// field. Used to stop the contextual scan once history predates the rally start.
+const DISCORD_EPOCH = 1420070400000;
+const snowflakeToMs = (id: string): number => Number(BigInt(id) >> 22n) + DISCORD_EPOCH;
+
+// A line that is exactly **bold text** — how rally headers are rendered (see
+// formatMessage). Captures the rally name between the markers.
+const RALLY_TITLE_RE = /^\*\*(.+)\*\*$/;
+
+// Subset of the Discord REST message object we read when scanning history.
+interface DiscordMessage {
+  id: string;
+  content: string;
+  author: { id: string };
+}
+
+// Our own bot user id, fetched once per pass (lazily, only when a contextual
+// rally actually needs it). Used to ignore other members' **bold** lines when
+// scanning for the last rally header.
+async function fetchBotUserId(env: CronEnv): Promise<string> {
+  const rest = new REST().setToken(env.DISCORD_BOT_TOKEN);
+  const botUser = (await rest.get(Routes.user())) as { id: string };
+  return botUser.id;
+}
+
+// The rally name in the most recent **Rally name** header the bot posted to this
+// channel, or null if none appears in the window. Pages back through history
+// (newest first, 100 per call — the API max), stopping once a page's oldest
+// message predates startAt: no driver comment, and thus no header, can exist
+// before the rally opened. Only the bot's own messages count, so a member typing
+// **bold** can't be mistaken for a header.
+async function fetchLastRallyTitle(
+  env: CronEnv,
+  channelId: string,
+  botUserId: string,
+  startAt: number | null,
+): Promise<string | null> {
+  const rest = new REST().setToken(env.DISCORD_BOT_TOKEN);
+  let beforeId: string | undefined;
+  for (;;) {
+    const query = new URLSearchParams({ limit: "100" });
+    if (beforeId) query.set("before", beforeId);
+    const page = (await rest.get(Routes.channelMessages(channelId), { query })) as DiscordMessage[];
+    if (page.length === 0) return null;
+    for (const message of page) {
+      if (message.author.id !== botUserId) continue;
+      for (const line of message.content.split("\n")) {
+        const titleMatch = RALLY_TITLE_RE.exec(line.trim());
+        if (titleMatch) return titleMatch[1] as string;
+      }
+    }
+    const oldestMessage = page[page.length - 1] as DiscordMessage;
+    // Stop at the rally start floor, or when the channel has no older page.
+    if (startAt !== null && snowflakeToMs(oldestMessage.id) < startAt) return null;
+    if (page.length < 100) return null;
+    beforeId = oldestMessage.id;
+  }
+}
+
+// Decide whether a rally's first message shows the **Rally name** header, from
+// its rally_title_mode:
+//   off        — never
+//   on         — always
+//   contextual — only when the channel's most recent rally header (scanned back
+//                to the rally start) isn't this rally; equal means the channel is
+//                already on this rally, so the header would be redundant.
+// A failed history read (missing permission, transient error) defaults to
+// showing the title — a redundant header beats a silently mislabeled block.
+async function resolveIncludeTitle(
+  env: CronEnv,
+  rally: UndeliveredComment,
+  channelId: string,
+  getBotUserId: () => Promise<string>,
+): Promise<boolean> {
+  if (rally.rallyTitleMode === "on") return true;
+  if (rally.rallyTitleMode === "off") return false;
+  try {
+    const botUserId = await getBotUserId();
+    const lastTitle = await fetchLastRallyTitle(env, channelId, botUserId, rally.startAt);
+    return lastTitle !== rally.rallyName;
+  } catch (err) {
+    logger.error(
+      `contextual title scan failed for rally ${rally.rallyId} (${rally.rallyName}); showing title:`,
+      formatError(err),
+    );
+    return true;
+  }
 }
 
 async function postMessage(env: CronEnv, channelId: string, content: string): Promise<void> {
@@ -252,11 +349,21 @@ async function runAndPost(db: Kysely<Database>, env: CronEnv): Promise<void> {
     byRally.set(c.rallyId, list);
   }
 
+  // Bot user id is only needed to scan history for contextual rallies; fetch it
+  // at most once per pass, and only if a contextual rally turns up.
+  let botUserId: string | null = null;
+  const getBotUserId = async (): Promise<string> => {
+    if (botUserId === null) botUserId = await fetchBotUserId(env);
+    return botUserId;
+  };
+
   let posted = 0;
   let messageCount = 0;
   for (const comments of byRally.values()) {
-    const channelId = comments[0].channelId ?? env.DISCORD_RESULTS_CHANNEL_ID;
-    for (const { content, included } of formatMessages(comments)) {
+    const firstComment = comments[0] as UndeliveredComment;
+    const channelId = firstComment.channelId ?? env.DISCORD_RESULTS_CHANNEL_ID;
+    const includeTitle = await resolveIncludeTitle(env, firstComment, channelId, getBotUserId);
+    for (const { content, included } of formatMessages(comments, includeTitle)) {
       await postMessage(env, channelId, content);
       await markDelivered(db, included, Date.now());
       posted += included.length;

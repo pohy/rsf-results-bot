@@ -1,6 +1,7 @@
 import type { Kysely } from "kysely";
 import type { Database } from "./db/schema.js";
 import type { RallyKey, StageEntry, StageRow } from "./results.js";
+import type { RallyTitleMode } from "./watched.js";
 
 // A comment seen for the first time this run. The cron batches these into one
 // Discord post; the count alone (caller does `.length`) covers probe's needs.
@@ -102,9 +103,12 @@ export interface UndeliveredComment {
   // in the position cell — see results.ts). The renderer prefixes SR comments
   // with "(SR)", so null is the SR signal rather than a stored flag.
   position: number | null;
-  // Whether the rendered message includes the **Rally name** header, from
-  // watched_rally. False for orphaned comments (rally unwatched; no joined row).
-  includeRallyTitle: boolean;
+  // How the rendered message treats the **Rally name** header, from watched_rally.
+  // 'off' for orphaned comments (rally unwatched; no joined row) — no title.
+  rallyTitleMode: RallyTitleMode;
+  // Epoch-ms rally open time, from watched_rally; bounds the contextual title
+  // scan's walk through channel history. Null when unknown or orphaned.
+  startAt: number | null;
   // Discord channel to post into, from watched_rally. Null when the rally was
   // unwatched while a comment was still pending (the leftJoin yields no row); the
   // cron routes those to the env fallback channel (see cron.ts runAndPost).
@@ -129,7 +133,8 @@ export async function selectUndelivered(db: Kysely<Database>): Promise<Undeliver
       "result.user_id as userId",
       "watched_rally.name as rallyName",
       "watched_rally.channel_id as channelId",
-      "watched_rally.include_rally_title as includeRallyTitle",
+      "watched_rally.rally_title_mode as rallyTitleMode",
+      "watched_rally.start_at as startAt",
       "stage.title as stageTitle",
       "result.nickname as nickname",
       "result.comment as comment",
@@ -146,8 +151,9 @@ export async function selectUndelivered(db: Kysely<Database>): Promise<Undeliver
     userId: r.userId,
     rallyName: r.rallyName ?? `Rally ${r.rallyId}`,
     channelId: r.channelId,
-    // Null for orphaned comments (no watched_rally row) → omit the title.
-    includeRallyTitle: r.includeRallyTitle === 1,
+    // 'off' for orphaned comments (no watched_rally row) → omit the title.
+    rallyTitleMode: r.rallyTitleMode ?? "off",
+    startAt: r.startAt,
     stageTitle: r.stageTitle,
     nickname: r.nickname,
     // comment is non-null by the WHERE above; the column type is still nullable.
