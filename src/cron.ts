@@ -117,9 +117,9 @@ interface FormattedMessage {
 //
 //   **Rally name**
 //   > Granbacken
-//   Driver: *comment*
+//   *comment* — __Driver__
 //   > Kuri Bush 2
-//   (SR) Other: *comment*
+//   (SR) *comment* — __Other__
 //
 // runAndPost splits the backlog by rally before calling this, so a message
 // covers a single rally; the **Rally name** header is only emitted when that
@@ -168,7 +168,7 @@ function formatMessage(comments: UndeliveredComment[]): FormattedMessage {
       for (const d of drivers) {
         // Super Rally rows (a restart) have no finishing position; prefix them
         // with "(SR)" so they stand out. See UndeliveredComment.position.
-        const driverLine = `${d.position === null ? "(SR) " : ""}${d.nickname}: *${d.comment}*`;
+        const driverLine = `${d.position === null ? "(SR) " : ""}*${d.comment}* — __${d.nickname}__`;
         const cand: string[] = [];
         if (!rallyAdded && d.includeRallyTitle) cand.push(`**${rallyName}**`);
         if (!stageAdded)
