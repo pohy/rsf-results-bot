@@ -98,6 +98,10 @@ export interface UndeliveredComment {
   stageTitle: string | null;
   nickname: string;
   comment: string;
+  // Finishing position, or null for a Super Rally restart (the site prints "SR"
+  // in the position cell — see results.ts). The renderer prefixes SR comments
+  // with "(SR)", so null is the SR signal rather than a stored flag.
+  position: number | null;
   // Whether the rendered message includes the **Rally name** header, from
   // watched_rally. False for orphaned comments (rally unwatched; no joined row).
   includeRallyTitle: boolean;
@@ -129,6 +133,7 @@ export async function selectUndelivered(db: Kysely<Database>): Promise<Undeliver
       "stage.title as stageTitle",
       "result.nickname as nickname",
       "result.comment as comment",
+      "result.position as position",
     ])
     .where("result.comment", "is not", null)
     .where("result.delivered_at", "is", null)
@@ -147,6 +152,7 @@ export async function selectUndelivered(db: Kysely<Database>): Promise<Undeliver
     nickname: r.nickname,
     // comment is non-null by the WHERE above; the column type is still nullable.
     comment: r.comment as string,
+    position: r.position,
   }));
 }
 
