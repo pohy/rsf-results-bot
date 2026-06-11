@@ -14,7 +14,9 @@ export interface ResultTable {
   stage_no: number;
   user_id: number;
   nickname: string;
-  position: number;
+  // Null for Super Rally rows (no finishing position). See migration 0008 and
+  // StageRowSchema in results.ts.
+  position: number | null;
   stage_time_ms: number | null;
   diff_prev_ms: number | null;
   diff_first_ms: number | null;

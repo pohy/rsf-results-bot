@@ -50,7 +50,10 @@ export async function fetchRallyName(rallyId: number): Promise<string | null> {
 }
 
 export const StageRowSchema = z.object({
-  position: z.number().int().positive(),
+  // Null for Super Rally ("SR") rows: a driver who restarted has no finishing
+  // position for the stage and the site prints "SR" in the position cell.
+  // Regular finishers carry a positive integer.
+  position: z.number().int().positive().nullable(),
   userId: z.number().int().positive(),
   nickname: z.string().min(1),
   comment: z.string().nullable(),
@@ -96,8 +99,18 @@ function extractTip(onmouseover: string): string | null {
   return m[1].replace(/\\(.)/g, "$1") || null;
 }
 
+// Position cell holds a positive integer for finishers, or the literal "SR" for
+// Super Rally rows (a restart — no finishing position). Return null for anything
+// that isn't a positive integer so SR rows still parse (and carry their comment).
+function parsePosition(raw: string): number | null {
+  const value = Number(raw.trim());
+  return Number.isInteger(value) && value > 0 ? value : null;
+}
+
 function parseRows($: cheerio.CheerioAPI): StageRow[] {
-  const rows = $("tr.paros, tr.paratlan").filter(
+  // SR (Super Rally) rows use the `_sr` stripe-class variants, so match those
+  // too — they carry comments and would otherwise be dropped silently.
+  const rows = $("tr.paros, tr.paratlan, tr.paros_sr, tr.paratlan_sr").filter(
     (_, el) => $(el).find("td.stage_results_poz").length > 0,
   );
 
@@ -107,7 +120,7 @@ function parseRows($: cheerio.CheerioAPI): StageRow[] {
     const $nameTd = $tr.find("td.stage_results_name");
     const href = $nameTd.find("a").attr("href") ?? "";
     const candidate = {
-      position: Number($tr.find("td.stage_results_poz").text().trim()),
+      position: parsePosition($tr.find("td.stage_results_poz").text()),
       userId: Number(href.match(/user_stats=(\d+)/)?.[1]),
       nickname: $nameTd.find("a > samp b").first().text().trim(),
       comment: extractTip($tr.attr("onmouseover") ?? ""),
@@ -116,8 +129,10 @@ function parseRows($: cheerio.CheerioAPI): StageRow[] {
       diffFirstMs: parseTimeMs($tr.find("td.stage_results_diff_first").text()),
     };
 
-    // Drop header/spacer rows and any row missing a valid position, user id, or
-    // nickname; the schema is the single guard for a well-formed result row.
+    // Drop header/spacer rows and any row missing a valid user id or nickname;
+    // the schema is the single guard for a well-formed result row. Position may
+    // be null (SR rows), so user id + nickname are what separate a result row
+    // from a spacer.
     const parsed = StageRowSchema.safeParse(candidate);
     if (parsed.success) out.push(parsed.data);
   });
