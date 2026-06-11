@@ -12,18 +12,31 @@ export interface NewComment {
 }
 
 export interface PersistResult {
-  // Rows inserted this run (not previously stored) that carry a non-null comment.
+  // Comments to deliver this run: rows inserted with a non-null comment, plus
+  // already-stored rows whose comment first appeared or changed since last scrape.
   newComments: NewComment[];
 }
 
-// Insert-only persistence (MVP). A (rally, stage, user) row is written
-// the first time it's scraped and never updated, so the first snapshot of
-// position/time/comment wins and re-scrapes are no-ops for existing rows.
-//
-// DEFERRED: rally results change as a rally progresses (positions shift, faster
-// times, edited comments). Capturing that history — append-only rows or a
-// versioned table keyed by scrape time — is out of scope for the MVP. When added,
-// `newComments` detection (currently "row is new") would shift to "value changed".
+// The stage results page renders each driver in two tables: the left table
+// (per-stage times) carries the Tip() comment, the right table (overall
+// standings) does not. parseRows scrapes both, so a driver appears twice with
+// the same userId. Collapse to one row per user, keeping the comment-bearing
+// (left) row when present so the right table's null doesn't shadow a comment.
+function dedupeByUser(rows: StageRow[]): StageRow[] {
+  const byUser = rows.reduce((acc, row) => {
+    const kept = acc.get(row.userId);
+    if (!kept || (kept.comment === null && row.comment !== null)) acc.set(row.userId, row);
+    return acc;
+  }, new Map<number, StageRow>());
+  return [...byUser.values()];
+}
+
+// Comment-aware persistence. A (rally, stage, user) row is inserted the first
+// time it's scraped. On re-scrape, an existing row's comment is updated when the
+// scraped value first appears or differs from what's stored — drivers often add
+// or edit a comment after their result row already exists — and that row is
+// re-queued for delivery (delivered_at reset to null). Position/time are still
+// first-write-wins; history of those changes remains out of scope.
 export async function persistStage(
   db: Kysely<Database>,
   rally: RallyKey,
@@ -47,13 +60,14 @@ export async function persistStage(
 
     const existing = await trx
       .selectFrom("result")
-      .select("user_id")
+      .select(["user_id", "comment"])
       .where("rally_id", "=", rallyId)
       .where("stage_no", "=", stageNo)
       .execute();
-    const seen = new Set(existing.map((r) => r.user_id));
+    const storedComment = new Map(existing.map((r) => [r.user_id, r.comment]));
 
-    const fresh = entry.rows.filter((row) => !seen.has(row.userId));
+    const rows = dedupeByUser(entry.rows);
+    const fresh = rows.filter((row) => !storedComment.has(row.userId));
     if (fresh.length > 0) {
       await trx
         .insertInto("result")
@@ -78,7 +92,22 @@ export async function persistStage(
         .execute();
     }
 
-    const newComments: NewComment[] = fresh
+    // Stored rows whose scraped comment first appeared or changed. A scraped
+    // null is ignored (don't erase a stored comment if a later scrape misses it).
+    const changed = rows.filter(
+      (row) => storedComment.has(row.userId) && row.comment !== null && row.comment !== storedComment.get(row.userId),
+    );
+    for (const row of changed) {
+      await trx
+        .updateTable("result")
+        .set({ comment: row.comment, delivered_at: null })
+        .where("rally_id", "=", rallyId)
+        .where("stage_no", "=", stageNo)
+        .where("user_id", "=", row.userId)
+        .execute();
+    }
+
+    const newComments: NewComment[] = [...fresh, ...changed]
       .filter((row): row is StageRow & { comment: string } => row.comment !== null)
       .map((row) => ({ stageNo, nickname: row.nickname, comment: row.comment }));
     return { newComments };
