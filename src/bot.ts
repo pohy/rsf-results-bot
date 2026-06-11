@@ -3,6 +3,7 @@ import {
   ChannelType,
   type ChatInputCommandInteraction,
   Client,
+  DiscordAPIError,
   Events,
   GatewayIntentBits,
   MessageFlags,
@@ -267,12 +268,27 @@ async function main() {
     // Register commands on startup, guild-scoped: idempotent and propagates
     // instantly (global registration would take ~1h).
     const rest = new REST().setToken(env.DISCORD_BOT_TOKEN);
-    await rest.put(Routes.applicationGuildCommands(env.DISCORD_APP_ID, env.DISCORD_GUILD_ID), {
-      body: [watchCommand.toJSON()],
-    });
-    logger.log(
-      `bot ready as ${ready.user.tag}; /watch registered to guild ${env.DISCORD_GUILD_ID}`,
-    );
+    try {
+      await rest.put(Routes.applicationGuildCommands(env.DISCORD_APP_ID, env.DISCORD_GUILD_ID), {
+        body: [watchCommand.toJSON()],
+      });
+      logger.log(
+        `bot ready as ${ready.user.tag}; /watch registered to guild ${env.DISCORD_GUILD_ID}`,
+      );
+    } catch (error) {
+      // "Missing Access" (50001) means the bot isn't in DISCORD_GUILD_ID yet, so
+      // it can't register guild commands. Exit cleanly instead of throwing an
+      // unhandled rejection: restart:unless-stopped brings the container back,
+      // re-prints the invite link, and re-registers once the bot is added.
+      if (error instanceof DiscordAPIError && error.code === 50001) {
+        logger.log(
+          `not in guild ${env.DISCORD_GUILD_ID} yet — open the invite link above ` +
+            "to add the bot; container will restart and register /watch automatically",
+        );
+        process.exit(0);
+      }
+      throw error;
+    }
   });
 
   client.on(Events.InteractionCreate, async (interaction) => {
