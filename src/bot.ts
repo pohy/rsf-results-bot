@@ -223,9 +223,9 @@ async function handleEdit(
   }
 
   const lines = [`Updated **${edited.name}** (${edited.rallyId}):`];
-  if (channel !== null) lines.push(`• channel → <#${edited.channelId}>`);
-  if (sendOldComments !== null) lines.push(`• send_old_comments → ${edited.sendOldComments}`);
-  if (rallyTitleMode !== null) lines.push(`• include_rally_title → ${edited.rallyTitleMode}`);
+  if (channel !== null) { lines.push(`• channel → <#${edited.channelId}>`); }
+  if (sendOldComments !== null) { lines.push(`• send_old_comments → ${edited.sendOldComments}`); }
+  if (rallyTitleMode !== null) { lines.push(`• include_rally_title → ${edited.rallyTitleMode}`); }
   // send_old_comments only takes effect on the first scrape; warn if that's
   // already past so the user knows the toggle did nothing functional.
   if (sendOldComments !== null && edited.backfilled) {
@@ -335,7 +335,7 @@ async function main() {
       return;
     }
 
-    if (!interaction.isChatInputCommand() || interaction.commandName !== Command.Watch) return;
+    if (!interaction.isChatInputCommand() || interaction.commandName !== Command.Watch) { return; }
 
     // Gate every command to the allowlist.
     if (!allowed.has(interaction.user.id)) {
@@ -345,15 +345,15 @@ async function main() {
 
     try {
       const sub = interaction.options.getSubcommand();
-      if (sub === Sub.Add) await handleAdd(db, interaction);
-      else if (sub === Sub.Remove) await handleRemove(db, interaction);
-      else if (sub === Sub.Edit) await handleEdit(db, interaction);
-      else if (sub === Sub.List) await handleList(db, interaction);
+      if (sub === Sub.Add) { await handleAdd(db, interaction); }
+      else if (sub === Sub.Remove) { await handleRemove(db, interaction); }
+      else if (sub === Sub.Edit) { await handleEdit(db, interaction); }
+      else if (sub === Sub.List) { await handleList(db, interaction); }
     } catch (err) {
       logger.error("watch command failed:", err);
       const msg = "Command failed. Try again.";
-      if (interaction.deferred || interaction.replied) await interaction.editReply(msg);
-      else await interaction.reply({ content: msg, flags: MessageFlags.Ephemeral });
+      if (interaction.deferred || interaction.replied) { await interaction.editReply(msg); }
+      else { await interaction.reply({ content: msg, flags: MessageFlags.Ephemeral }); }
     }
   });
 

@@ -34,9 +34,9 @@ export interface EnsureResult {
 }
 
 function jarEquals(a: CookieJar, b: CookieJar): boolean {
-  if (a.size !== b.size) return false;
+  if (a.size !== b.size) { return false; }
   for (const [k, v] of a) {
-    if (b.get(k) !== v) return false;
+    if (b.get(k) !== v) { return false; }
   }
   return true;
 }

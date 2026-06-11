@@ -64,13 +64,13 @@ const DT_RE = /^(\d{2})-(\d{2})\s+(\d{2}):(\d{2})$/;
 // rallies near the present and resolves the Dec/Jan boundary correctly.
 export function parseListDatetime(raw: string, nowMs: number): number | null {
   const m = DT_RE.exec(raw.trim());
-  if (!m) return null;
+  if (!m) { return null; }
   const [, mo, d, h, mi] = m.map(Number) as [unknown, number, number, number, number];
   const baseYear = new Date(nowMs).getUTCFullYear();
   let best: number | null = null;
   for (const y of [baseYear - 1, baseYear, baseYear + 1]) {
     const ms = budapestToEpochMs(y, mo, d, h, mi);
-    if (best === null || Math.abs(ms - nowMs) < Math.abs(best - nowMs)) best = ms;
+    if (best === null || Math.abs(ms - nowMs) < Math.abs(best - nowMs)) { best = ms; }
   }
   return best;
 }
@@ -93,11 +93,11 @@ export function parseRallyList(html: string, nowMs: number): RallyMeta[] {
     const closeRaw = segments[segments.length - 1] ?? "";
     const openRaw = segments.length > 1 ? (segments[0] ?? "") : "";
     const deadlineAt = parseListDatetime(closeRaw, nowMs);
-    if (deadlineAt === null) return;
+    if (deadlineAt === null) { return; }
     const startAt = openRaw ? parseListDatetime(openRaw, nowMs) : null;
 
     const parsed = RallyMetaSchema.safeParse({ rallyId, name, startAt, deadlineAt });
-    if (parsed.success) out.push(parsed.data);
+    if (parsed.success) { out.push(parsed.data); }
   });
   return out;
 }

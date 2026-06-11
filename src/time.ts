@@ -7,7 +7,7 @@ const SEC_ONLY = /^(\d+)\.(\d{1,3})$/;
 
 export function parseTimeMs(raw: string): number | null {
   const t = raw.trim().replace(/^\+/, "");
-  if (!t) return null;
+  if (!t) { return null; }
 
   const min = WITH_MIN.exec(t);
   if (min) {

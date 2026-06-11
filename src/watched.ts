@@ -42,7 +42,7 @@ export async function addWatched(db: Kysely<Database>, w: AddWatched): Promise<b
       .select("rally_id")
       .where("rally_id", "=", w.rallyId)
       .executeTakeFirst();
-    if (existing) return false;
+    if (existing) { return false; }
     await trx
       .insertInto("watched_rally")
       .values({
@@ -130,7 +130,7 @@ export async function editWatched(
       .select("rally_id")
       .where("rally_id", "=", rallyId)
       .executeTakeFirst();
-    if (!existing) return null;
+    if (!existing) { return null; }
 
     const values = {
       ...(edit.sendOldComments !== undefined && {
@@ -184,7 +184,7 @@ export async function removeWatched(db: Kysely<Database>, rallyId: number): Prom
       .deleteFrom("watched_rally")
       .where("rally_id", "=", rallyId)
       .executeTakeFirst();
-    if ((res.numDeletedRows ?? 0n) === 0n) return false;
+    if ((res.numDeletedRows ?? 0n) === 0n) { return false; }
     await trx.deleteFrom("result").where("rally_id", "=", rallyId).execute();
     await trx.deleteFrom("stage").where("rally_id", "=", rallyId).execute();
     return true;
@@ -201,7 +201,7 @@ export async function updateDeadlines(
   db: Kysely<Database>,
   rallies: ReadonlyArray<{ rallyId: number; startAt: number | null; deadlineAt: number }>,
 ): Promise<number> {
-  if (rallies.length === 0) return 0;
+  if (rallies.length === 0) { return 0; }
   return db.transaction().execute(async (trx) => {
     let updated = 0;
     for (const rally of rallies) {

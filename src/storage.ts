@@ -15,7 +15,7 @@ export async function loadJar(path: string): Promise<CookieJar | null> {
   try {
     raw = await readFile(path, "utf8");
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === "ENOENT") return null;
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") { return null; }
     throw e;
   }
   let parsed: unknown;
@@ -25,6 +25,6 @@ export async function loadJar(path: string): Promise<CookieJar | null> {
     return null;
   }
   const result = JarJSONSchema.safeParse(parsed);
-  if (!result.success) return null;
+  if (!result.success) { return null; }
   return jarFromJSON(result.data);
 }

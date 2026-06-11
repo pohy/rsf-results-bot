@@ -14,7 +14,7 @@ pg.types.setTypeParser(20, (v) => Number(v));
 
 export function makeSqliteDialect(path: string): BunSqliteDialect {
   // bun:sqlite creates the file but not parent dirs; ensure they exist.
-  if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
+  if (path !== ":memory:") { mkdirSync(dirname(path), { recursive: true }); }
   const sqlite = new BunDatabase(path);
   // FKs are off per-connection in sqlite; enable to match pg enforcement.
   // Default (rollback journal) keeps everything in the single .sqlite file —
@@ -31,7 +31,7 @@ export function makePostgresDialect(connectionString: string): PostgresDialect {
 // DATABASE_URL present => Postgres (prod). Otherwise sqlite file (local dev),
 // SQLITE_PATH or its default.
 export function dialectFromEnv(env: DbEnv) {
-  if (env.DATABASE_URL) return makePostgresDialect(env.DATABASE_URL);
+  if (env.DATABASE_URL) { return makePostgresDialect(env.DATABASE_URL); }
   return makeSqliteDialect(env.SQLITE_PATH);
 }
 
@@ -39,7 +39,7 @@ export function dialectFromEnv(env: DbEnv) {
 // so a missing DATABASE_URL (silent fallback to local sqlite) is visible rather
 // than silently sending prod writes to a throwaway file.
 export function backendDescription(env: DbEnv): string {
-  if (!env.DATABASE_URL) return `sqlite ${env.SQLITE_PATH}`;
+  if (!env.DATABASE_URL) { return `sqlite ${env.SQLITE_PATH}`; }
   // DATABASE_URL is validated as a URL by the env schema, so parsing won't throw.
   const u = new URL(env.DATABASE_URL);
   return `postgres ${u.host}${u.pathname}`;

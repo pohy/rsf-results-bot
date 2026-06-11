@@ -25,7 +25,7 @@ export interface PersistResult {
 function dedupeByUser(rows: StageRow[]): StageRow[] {
   const byUser = rows.reduce((acc, row) => {
     const kept = acc.get(row.userId);
-    if (!kept || (kept.comment === null && row.comment !== null)) acc.set(row.userId, row);
+    if (!kept || (kept.comment === null && row.comment !== null)) { acc.set(row.userId, row); }
     return acc;
   }, new Map<number, StageRow>());
   return [...byUser.values()];
@@ -95,7 +95,10 @@ export async function persistStage(
     // Stored rows whose scraped comment first appeared or changed. A scraped
     // null is ignored (don't erase a stored comment if a later scrape misses it).
     const changed = rows.filter(
-      (row) => storedComment.has(row.userId) && row.comment !== null && row.comment !== storedComment.get(row.userId),
+      (row) =>
+        storedComment.has(row.userId) &&
+        row.comment !== null &&
+        row.comment !== storedComment.get(row.userId),
     );
     for (const row of changed) {
       await trx
@@ -199,7 +202,7 @@ export async function markDelivered(
   rows: Array<Pick<UndeliveredComment, "rallyId" | "stageNo" | "userId">>,
   now: number,
 ): Promise<void> {
-  if (rows.length === 0) return;
+  if (rows.length === 0) { return; }
   await db.transaction().execute(async (trx) => {
     for (const r of rows) {
       await trx

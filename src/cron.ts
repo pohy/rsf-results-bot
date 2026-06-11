@@ -69,7 +69,7 @@ async function runPass(db: Kysely<Database>, env: CronEnv): Promise<void> {
   if (skipped > 0) {
     logger.log(`skipping ${skipped} finished rally(ies) (closed, comments parsed)`);
   }
-  if (rallies.length === 0) return;
+  if (rallies.length === 0) { return; }
 
   for (let i = 0; i < rallies.length; i++) {
     const rally = rallies[i];
@@ -97,7 +97,7 @@ async function runPass(db: Kysely<Database>, env: CronEnv): Promise<void> {
       logger.error(`rally ${rally.rallyId} (${rally.name}) failed:`, formatError(err));
     }
     // Polite gap before the next rally; skip it after the last one.
-    if (i < rallies.length - 1) await sleep(env.CRON_RALLY_DELAY_MS);
+    if (i < rallies.length - 1) { await sleep(env.CRON_RALLY_DELAY_MS); }
   }
 }
 
@@ -171,9 +171,10 @@ function formatMessage(comments: UndeliveredComment[], includeTitle: boolean): F
         // with "(SR)" so they stand out. See UndeliveredComment.position.
         const driverLine = `${d.position === null ? "(SR) " : ""}*${d.comment}* — __${d.nickname}__`;
         const candidateLines: string[] = [];
-        if (!rallyAdded && includeTitle) candidateLines.push(`**${rallyName}**`);
-        if (!stageAdded)
+        if (!rallyAdded && includeTitle) { candidateLines.push(`**${rallyName}**`); }
+        if (!stageAdded) {
           candidateLines.push(`> S${stageNo}${d.stageTitle ? ` - ${d.stageTitle}` : ""}`);
+        }
         candidateLines.push(driverLine);
         const addText = candidateLines.reduce((n, l) => n + l.length, 0);
 
@@ -267,20 +268,20 @@ async function fetchLastRallyTitle(
   let beforeId: string | undefined;
   for (;;) {
     const query = new URLSearchParams({ limit: "100" });
-    if (beforeId) query.set("before", beforeId);
+    if (beforeId) { query.set("before", beforeId); }
     const page = (await rest.get(Routes.channelMessages(channelId), { query })) as DiscordMessage[];
-    if (page.length === 0) return null;
+    if (page.length === 0) { return null; }
     for (const message of page) {
-      if (message.author.id !== botUserId) continue;
+      if (message.author.id !== botUserId) { continue; }
       for (const line of message.content.split("\n")) {
         const titleMatch = RALLY_TITLE_RE.exec(line.trim());
-        if (titleMatch) return titleMatch[1] as string;
+        if (titleMatch) { return titleMatch[1] as string; }
       }
     }
     const oldestMessage = page[page.length - 1] as DiscordMessage;
     // Stop at the rally start floor, or when the channel has no older page.
-    if (startAt !== null && snowflakeToMs(oldestMessage.id) < startAt) return null;
-    if (page.length < 100) return null;
+    if (startAt !== null && snowflakeToMs(oldestMessage.id) < startAt) { return null; }
+    if (page.length < 100) { return null; }
     beforeId = oldestMessage.id;
   }
 }
@@ -300,8 +301,8 @@ async function resolveIncludeTitle(
   channelId: string,
   getBotUserId: () => Promise<string>,
 ): Promise<boolean> {
-  if (rally.rallyTitleMode === "on") return true;
-  if (rally.rallyTitleMode === "off") return false;
+  if (rally.rallyTitleMode === "on") { return true; }
+  if (rally.rallyTitleMode === "off") { return false; }
   try {
     const botUserId = await getBotUserId();
     const lastTitle = await fetchLastRallyTitle(env, channelId, botUserId, rally.startAt);
@@ -353,7 +354,7 @@ async function runAndPost(db: Kysely<Database>, env: CronEnv): Promise<void> {
   // at most once per pass, and only if a contextual rally turns up.
   let botUserId: string | null = null;
   const getBotUserId = async (): Promise<string> => {
-    if (botUserId === null) botUserId = await fetchBotUserId(env);
+    if (botUserId === null) { botUserId = await fetchBotUserId(env); }
     return botUserId;
   };
 

@@ -19,7 +19,7 @@ export function rallyIdFromUrl(input: string): number | null {
     return null;
   }
   const raw = url.searchParams.get("rally_id");
-  if (!raw) return null;
+  if (!raw) { return null; }
   const id = Number(raw);
   return Number.isInteger(id) && id > 0 ? id : null;
 }
@@ -84,7 +84,7 @@ const stageUrl = (k: StageKey): string =>
 function parseTitle($: cheerio.CheerioAPI): string | null {
   // Header row inside the left results table: <tr class="fejlec2">...<b>TITLE times:</b>...
   const raw = $("table.rally_results_stres_left tr.fejlec2 b").first().text().trim();
-  if (!raw) return null;
+  if (!raw) { return null; }
   return raw.replace(/\s*times:\s*$/i, "").trim();
 }
 
@@ -95,7 +95,7 @@ const TIP_RE = /Tip\('((?:\\.|[^'\\])*)'\)/;
 
 function extractTip(onmouseover: string): string | null {
   const m = onmouseover.match(TIP_RE);
-  if (!m) return null;
+  if (!m) { return null; }
   return m[1].replace(/\\(.)/g, "$1") || null;
 }
 
@@ -134,7 +134,7 @@ function parseRows($: cheerio.CheerioAPI): StageRow[] {
     // be null (SR rows), so user id + nickname are what separate a result row
     // from a spacer.
     const parsed = StageRowSchema.safeParse(candidate);
-    if (parsed.success) out.push(parsed.data);
+    if (parsed.success) { out.push(parsed.data); }
   });
   return out;
 }
@@ -144,7 +144,7 @@ function parseStageCount(html: string): number {
   let max = 0;
   for (const m of html.matchAll(/stage_no=(\d+)/g)) {
     const n = Number(m[1]);
-    if (n > max) max = n;
+    if (n > max) { max = n; }
   }
   return max;
 }
