@@ -58,14 +58,18 @@ const BotEnvSchema = DbEnvSchema.extend(DiscordEnvSchema.shape);
 // migration requires), plus the fallback for comments whose rally has since been
 // unwatched. CRON_SCHEDULE absent => run a single pass and exit
 // (drive it from an external scheduler); set it to a cron expression to
-// self-schedule via Bun.cron (interpreted as UTC). Delays throttle requests so
-// we don't hammer the site: between stages of a rally, and between rallies.
+// self-schedule via Bun.cron (interpreted as UTC). A random delay in
+// [CRON_DELAY_MIN_MS, CRON_DELAY_MAX_MS] throttles every RSF request (between
+// stages and between rallies) so we don't hammer the site with a robotic cadence.
 const CronEnvSchema = EnvSchema.extend({
   DISCORD_BOT_TOKEN: z.string().min(1),
   DISCORD_RESULTS_CHANNEL_ID: z.string().regex(/^\d+$/, "must be a numeric channel id"),
   CRON_SCHEDULE: z.string().transform(unquote).pipe(z.string().min(1)).optional(),
-  CRON_STAGE_DELAY_MS: z.coerce.number().int().nonnegative().default(1500),
-  CRON_RALLY_DELAY_MS: z.coerce.number().int().nonnegative().default(5000),
+  CRON_DELAY_MIN_MS: z.coerce.number().int().nonnegative().default(10000),
+  CRON_DELAY_MAX_MS: z.coerce.number().int().nonnegative().default(20000),
+}).refine((env) => env.CRON_DELAY_MIN_MS <= env.CRON_DELAY_MAX_MS, {
+  message: "CRON_DELAY_MIN_MS must be <= CRON_DELAY_MAX_MS",
+  path: ["CRON_DELAY_MIN_MS"],
 });
 
 export type DbEnv = z.infer<typeof DbEnvSchema>;

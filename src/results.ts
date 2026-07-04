@@ -183,12 +183,17 @@ export interface FetchAllStagesResult {
 }
 
 export interface FetchAllStagesOptions {
-  delayMs?: number;
+  delayMinMs?: number;
+  delayMaxMs?: number;
   maxRetries?: number;
   onStage?: (entry: StageEntry) => void | Promise<void>;
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// Random throttle in [min, max] so the request cadence isn't a giveaway constant.
+export const jitter = (min: number, max: number): number =>
+  min + Math.floor(Math.random() * (max - min + 1));
 
 interface FetchStageHtmlResult {
   jar: CookieJar;
@@ -230,7 +235,8 @@ export async function fetchAllStages(
   rally: RallyKey,
   opts: FetchAllStagesOptions = {},
 ): Promise<FetchAllStagesResult> {
-  const delayMs = opts.delayMs ?? 3000;
+  const delayMinMs = opts.delayMinMs ?? 10000;
+  const delayMaxMs = opts.delayMaxMs ?? 20000;
   const maxRetries = opts.maxRetries ?? 4;
 
   const first = await fetchStageHtmlWithRetry(jar, { ...rally, stageNo: 1 }, maxRetries);
@@ -249,7 +255,7 @@ export async function fetchAllStages(
 
   let currentJar = first.jar;
   for (let stageNo = 2; stageNo <= count; stageNo++) {
-    await sleep(delayMs);
+    await sleep(jitter(delayMinMs, delayMaxMs));
     const { jar: nextJar, html } = await fetchStageHtmlWithRetry(
       currentJar,
       { ...rally, stageNo },

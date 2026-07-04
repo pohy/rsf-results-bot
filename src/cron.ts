@@ -13,7 +13,7 @@ import {
 } from "./persist.js";
 import { selectPollable } from "./poll.js";
 import { fetchRallyList } from "./rallies.js";
-import { fetchAllStages, type RallyKey, stageUrl } from "./results.js";
+import { fetchAllStages, jitter, type RallyKey, stageUrl } from "./results.js";
 import { ensureSession } from "./session.js";
 import { completeBackfill, listWatched, updateDeadlines } from "./watched.js";
 
@@ -76,7 +76,8 @@ async function runPass(db: Kysely<Database>, env: CronEnv): Promise<void> {
     const key: RallyKey = { rallyId: rally.rallyId };
     try {
       const { jar: nextJar, stages } = await fetchAllStages(jar, key, {
-        delayMs: env.CRON_STAGE_DELAY_MS,
+        delayMinMs: env.CRON_DELAY_MIN_MS,
+        delayMaxMs: env.CRON_DELAY_MAX_MS,
       });
       jar = nextJar;
       for (const stage of stages) {
@@ -97,7 +98,7 @@ async function runPass(db: Kysely<Database>, env: CronEnv): Promise<void> {
       logger.error(`rally ${rally.rallyId} (${rally.name}) failed:`, formatError(err));
     }
     // Polite gap before the next rally; skip it after the last one.
-    if (i < rallies.length - 1) { await sleep(env.CRON_RALLY_DELAY_MS); }
+    if (i < rallies.length - 1) { await sleep(jitter(env.CRON_DELAY_MIN_MS, env.CRON_DELAY_MAX_MS)); }
   }
 }
 

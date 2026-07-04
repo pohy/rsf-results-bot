@@ -29,7 +29,8 @@ async function main() {
   let failedStages = 0;
   try {
     const { stages } = await fetchAllStages(jar, rally, {
-      delayMs: 1000,
+      delayMinMs: 1000,
+      delayMaxMs: 1000,
       // Persist failures are logged with stage context and counted, not thrown,
       // so one bad stage doesn't discard the rest of the scrape. A non-zero exit
       // at the end signals that something didn't persist.
