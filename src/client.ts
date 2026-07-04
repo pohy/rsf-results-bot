@@ -26,6 +26,14 @@ export const BASE = "https://www.rallysimfans.hu";
 const UA =
   "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36";
 
+// Bun's fetch has no default timeout: a stalled connection to the site hangs
+// the request forever. In the scheduled cron that wedges the `running` latch
+// so every later tick just logs "previous pass still running; skipping" and
+// never scrapes again — cron alive, no error logs, no new comments. Abort each
+// request so a stall throws (retried/logged) instead of hanging the pass.
+// ponytail: fixed 30s ceiling, make it env-configurable if a slow page ever needs longer.
+const REQUEST_TIMEOUT_MS = 30_000;
+
 const DEFAULT_HEADERS: Record<string, string> = {
   "user-agent": UA,
   accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -61,6 +69,7 @@ export async function rsfFetch(
     headers,
     body: req.body,
     redirect: "manual",
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
   return { jar: updateJarFromResponse(jar, res.headers), res };
 }
