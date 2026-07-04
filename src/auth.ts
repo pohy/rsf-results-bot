@@ -16,7 +16,15 @@ export async function fetchLoginToken(jar: CookieJar): Promise<LoginTokenResult>
   const $ = cheerio.load(html);
   const token = $('input[name="token_account_login"]').attr("value");
   if (!token) {
-    throw new Error("token_account_login not found on login page");
+    // The page structure is stable, so a missing token means prod got a
+    // different page than the login form — an IP block ("cannot be fulfilled
+    // from this network"), a rate-limit, or a redirect. Surface enough of the
+    // actual response to tell those apart from the cron log.
+    const title = $("title").text().trim() || "(no title)";
+    const snippet = html.replace(/\s+/g, " ").trim().slice(0, 300);
+    throw new Error(
+      `token_account_login not found (HTTP ${res.status}, ${html.length} bytes, title="${title}"): ${snippet}`,
+    );
   }
   return { jar: nextJar, token };
 }
