@@ -23,6 +23,7 @@ import {
   addWatched,
   editWatched,
   listWatched,
+  type RallyStatusFilter,
   type RallyTitleMode,
   removeWatched,
 } from "./watched.js";
@@ -35,6 +36,17 @@ const TITLE_MODE_CHOICES = [
   { name: "On — always show the rally title", value: "on" },
   { name: "Contextual — show only when the channel's last title differs", value: "contextual" },
 ] as const;
+
+// Choices for /watch list's status option. Values match RallyStatusFilter.
+const STATUS_FILTER_CHOICES = [
+  { name: "Active — deadline unknown or still ahead", value: "active" },
+  { name: "Inactive — deadline passed", value: "inactive" },
+  { name: "All", value: "all" },
+] as const;
+
+// Discord's per-message content cap. /watch list splits its output across
+// several messages when the full list would exceed it.
+const DISCORD_MESSAGE_LIMIT = 2000;
 
 // Discord bot for managing the watched-rally list. Gateway connection (not a
 // webhook) so it can receive slash commands. It only reads/writes watched_rally
@@ -129,7 +141,18 @@ const watchCommand = new SlashCommandBuilder()
           .addChoices(...TITLE_MODE_CHOICES),
       ),
   )
-  .addSubcommand((s) => s.setName(Sub.List).setDescription("List watched rallies"));
+  .addSubcommand((s) =>
+    s
+      .setName(Sub.List)
+      .setDescription("List watched rallies")
+      .addStringOption((o) =>
+        o
+          .setName("status")
+          .setDescription("Which rallies to show (default: active)")
+          .setRequired(false)
+          .addChoices(...STATUS_FILTER_CHOICES),
+      ),
+  );
 
 async function handleAdd(
   db: Kysely<Database>,
@@ -223,9 +246,15 @@ async function handleEdit(
   }
 
   const lines = [`Updated **${edited.name}** (${edited.rallyId}):`];
-  if (channel !== null) { lines.push(`• channel → <#${edited.channelId}>`); }
-  if (sendOldComments !== null) { lines.push(`• send_old_comments → ${edited.sendOldComments}`); }
-  if (rallyTitleMode !== null) { lines.push(`• include_rally_title → ${edited.rallyTitleMode}`); }
+  if (channel !== null) {
+    lines.push(`• channel → <#${edited.channelId}>`);
+  }
+  if (sendOldComments !== null) {
+    lines.push(`• send_old_comments → ${edited.sendOldComments}`);
+  }
+  if (rallyTitleMode !== null) {
+    lines.push(`• include_rally_title → ${edited.rallyTitleMode}`);
+  }
   // send_old_comments only takes effect on the first scrape; warn if that's
   // already past so the user knows the toggle did nothing functional.
   if (sendOldComments !== null && edited.backfilled) {
@@ -245,7 +274,8 @@ async function handleRallyAutocomplete(
   interaction: AutocompleteInteraction,
 ): Promise<void> {
   const focused = interaction.options.getFocused().toString().toLowerCase();
-  const rows = await listWatched(db);
+  // Suggest across all rallies: an inactive rally can still be removed/edited.
+  const rows = await listWatched(db, "all");
   const matches = rows.filter(
     (r) => r.name.toLowerCase().includes(focused) || String(r.rallyId).includes(focused),
   );
@@ -258,17 +288,48 @@ async function handleList(
   db: Kysely<Database>,
   interaction: ChatInputCommandInteraction,
 ): Promise<void> {
-  const rows = await listWatched(db);
+  const filter = (interaction.options.getString("status") ?? "active") as RallyStatusFilter;
+  const rows = await listWatched(db, filter);
   // Masked link [name](url) is clickable and doesn't trigger a link-preview embed;
   // <#id> renders the target channel as a mention. Each rally posts its comments
   // into that channel (see watched_rally.channel_id / cron.ts).
-  const body =
-    rows.length === 0
-      ? "No rallies watched."
-      : rows
-          .map((r) => `• [${r.name}](${rallyDetailsUrl(r.rallyId)}) → <#${r.channelId}>`)
-          .join("\n");
-  await interaction.reply({ content: body, flags: MessageFlags.Ephemeral });
+  if (rows.length === 0) {
+    const empty = filter === "all" ? "No rallies watched." : `No ${filter} rallies.`;
+    await interaction.reply({ content: empty, flags: MessageFlags.Ephemeral });
+    return;
+  }
+  const lines = rows.map((r) => `• [${r.name}](${rallyDetailsUrl(r.rallyId)}) → <#${r.channelId}>`);
+  // Discord rejects content over 2000 chars, so pack lines into successive
+  // messages: reply with the first, follow up with the rest.
+  const chunks = chunkLines(lines, DISCORD_MESSAGE_LIMIT);
+  for (const [index, content] of chunks.entries()) {
+    if (index === 0) {
+      await interaction.reply({ content, flags: MessageFlags.Ephemeral });
+    } else {
+      await interaction.followUp({ content, flags: MessageFlags.Ephemeral });
+    }
+  }
+}
+
+// Group newline-joined lines into chunks no longer than `limit` characters. A
+// single line longer than the limit gets its own (over-limit) chunk — a rally
+// name would have to be absurdly long to hit that, and Discord's error is clear.
+export function chunkLines(lines: string[], limit: number): string[] {
+  const chunks: string[] = [];
+  let current = "";
+  for (const line of lines) {
+    const candidate = current === "" ? line : `${current}\n${line}`;
+    if (candidate.length > limit && current !== "") {
+      chunks.push(current);
+      current = line;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current !== "") {
+    chunks.push(current);
+  }
+  return chunks;
 }
 
 async function main() {
@@ -335,7 +396,9 @@ async function main() {
       return;
     }
 
-    if (!interaction.isChatInputCommand() || interaction.commandName !== Command.Watch) { return; }
+    if (!interaction.isChatInputCommand() || interaction.commandName !== Command.Watch) {
+      return;
+    }
 
     // Gate every command to the allowlist.
     if (!allowed.has(interaction.user.id)) {
@@ -345,22 +408,34 @@ async function main() {
 
     try {
       const sub = interaction.options.getSubcommand();
-      if (sub === Sub.Add) { await handleAdd(db, interaction); }
-      else if (sub === Sub.Remove) { await handleRemove(db, interaction); }
-      else if (sub === Sub.Edit) { await handleEdit(db, interaction); }
-      else if (sub === Sub.List) { await handleList(db, interaction); }
+      if (sub === Sub.Add) {
+        await handleAdd(db, interaction);
+      } else if (sub === Sub.Remove) {
+        await handleRemove(db, interaction);
+      } else if (sub === Sub.Edit) {
+        await handleEdit(db, interaction);
+      } else if (sub === Sub.List) {
+        await handleList(db, interaction);
+      }
     } catch (err) {
       logger.error("watch command failed:", err);
       const msg = "Command failed. Try again.";
-      if (interaction.deferred || interaction.replied) { await interaction.editReply(msg); }
-      else { await interaction.reply({ content: msg, flags: MessageFlags.Ephemeral }); }
+      if (interaction.deferred || interaction.replied) {
+        await interaction.editReply(msg);
+      } else {
+        await interaction.reply({ content: msg, flags: MessageFlags.Ephemeral });
+      }
     }
   });
 
   await client.login(env.DISCORD_BOT_TOKEN);
 }
 
-main().catch((e) => {
-  logger.error(e);
-  process.exit(1);
-});
+// Guard so importing this module (e.g. from bot.test.ts) doesn't boot the bot;
+// import.meta.main is true only when run directly (bun run src/bot.ts).
+if (import.meta.main) {
+  main().catch((e) => {
+    logger.error(e);
+    process.exit(1);
+  });
+}

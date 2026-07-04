@@ -12,14 +12,14 @@ Gateway, not webhook: webhook is send-only, can't receive commands. Watch list n
 /watch add    url:<rally URL> channel:<#channel> [send_old_comments:<bool>] [include_rally_title:<mode>]
 /watch edit   rally:<id> [channel:<#channel>] [send_old_comments:<bool>] [include_rally_title:<mode>]
 /watch remove rally:<id>
-/watch list
+/watch list   [status:<active|inactive|all>]
 ```
 
 - `add` — takes rally **URL** (any `centerbox`; `rally_id` parsed from query, `cg` ignored). Name parsed from public details page. Rejects already-watched. 404 or unparseable name → ephemeral error, writes nothing.
 - `channel` — required. Per-rally target; cron batches per channel, never mixes rooms. Falls back to `DISCORD_RESULTS_CHANNEL_ID` for unwatched rallies.
 - `send_old_comments` — default off. On posts comment backlog on first scrape.
 - `include_rally_title` — `Off`/`On`/`Contextual` (show only when channel's last title differs).
-- `remove` — by rally id. `edit` — change settings (not URL). `list` — ephemeral, masked link + `<#channel>` mention.
+- `remove` — by rally id. `edit` — change settings (not URL). `list` — ephemeral, masked link + `<#channel>` mention. `status` (default `active`) filters by deadline: `active` (null or ahead of now), `inactive` (past), `all`. Output over 2000 chars splits across follow-up messages.
 
 All commands gated to `DISCORD_ALLOWED_USER_IDS` allowlist. Non-allowed → "not authorized", no action. Ids are 64-bit snowflakes — compare as strings.
 

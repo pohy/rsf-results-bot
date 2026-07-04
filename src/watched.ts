@@ -42,7 +42,9 @@ export async function addWatched(db: Kysely<Database>, w: AddWatched): Promise<b
       .select("rally_id")
       .where("rally_id", "=", w.rallyId)
       .executeTakeFirst();
-    if (existing) { return false; }
+    if (existing) {
+      return false;
+    }
     await trx
       .insertInto("watched_rally")
       .values({
@@ -130,7 +132,9 @@ export async function editWatched(
       .select("rally_id")
       .where("rally_id", "=", rallyId)
       .executeTakeFirst();
-    if (!existing) { return null; }
+    if (!existing) {
+      return null;
+    }
 
     const values = {
       ...(edit.sendOldComments !== undefined && {
@@ -184,7 +188,9 @@ export async function removeWatched(db: Kysely<Database>, rallyId: number): Prom
       .deleteFrom("watched_rally")
       .where("rally_id", "=", rallyId)
       .executeTakeFirst();
-    if ((res.numDeletedRows ?? 0n) === 0n) { return false; }
+    if ((res.numDeletedRows ?? 0n) === 0n) {
+      return false;
+    }
     await trx.deleteFrom("result").where("rally_id", "=", rallyId).execute();
     await trx.deleteFrom("stage").where("rally_id", "=", rallyId).execute();
     return true;
@@ -201,7 +207,9 @@ export async function updateDeadlines(
   db: Kysely<Database>,
   rallies: ReadonlyArray<{ rallyId: number; startAt: number | null; deadlineAt: number }>,
 ): Promise<number> {
-  if (rallies.length === 0) { return 0; }
+  if (rallies.length === 0) {
+    return 0;
+  }
   return db.transaction().execute(async (trx) => {
     let updated = 0;
     for (const rally of rallies) {
@@ -219,12 +227,32 @@ export async function updateDeadlines(
   });
 }
 
-// All watched rallies, oldest first. Only the fields shown in /watch list.
-export async function listWatched(db: Kysely<Database>): Promise<WatchedRally[]> {
-  const rows = await db
+// Which watched rallies /watch list shows. 'active': deadline unknown or still
+// ahead; 'inactive': deadline past; 'all': everything.
+export type RallyStatusFilter = "active" | "inactive" | "all";
+
+// All watched rallies matching the status filter, oldest first. Only the fields
+// shown in /watch list. Active is deadline-based (null or >= now) — simpler than
+// selectPollable's fuller "done" check (which also waits for a post-deadline
+// scrape), which is what the cron needs but not a meaningful distinction here.
+// ponytail: deadline-only active check; adopt selectPollable's predicate if
+// "still polling" ever needs to differ from "not past deadline" in the UI.
+export async function listWatched(
+  db: Kysely<Database>,
+  filter: RallyStatusFilter = "all",
+  now: number = Date.now(),
+): Promise<WatchedRally[]> {
+  let query = db
     .selectFrom("watched_rally")
     .select(["rally_id", "name", "channel_id"])
-    .orderBy("added_at", "asc")
-    .execute();
+    .orderBy("added_at", "asc");
+  if (filter === "active") {
+    query = query.where((eb) =>
+      eb.or([eb("deadline_at", "is", null), eb("deadline_at", ">=", now)]),
+    );
+  } else if (filter === "inactive") {
+    query = query.where("deadline_at", "<", now);
+  }
+  const rows = await query.execute();
   return rows.map((r) => ({ rallyId: r.rally_id, name: r.name, channelId: r.channel_id }));
 }

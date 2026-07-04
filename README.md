@@ -17,10 +17,10 @@ Comments stored undelivered, marked delivered only after successful post — fai
 /watch add    url:<rally URL> channel:<#channel> [send_old_comments:<bool>] [include_rally_title:<mode>]
 /watch edit   rally:<id> [channel:<#channel>] [send_old_comments:<bool>] [include_rally_title:<mode>]
 /watch remove rally:<id>
-/watch list
+/watch list   [status:<active|inactive|all>]
 ```
 
-`add` takes rally URL, resolves name + id. `send_old_comments` (default off) posts backlog on first scrape. `include_rally_title` — `Off`/`On`/`Contextual`. All commands gated to allowlist of Discord user ids.
+`add` takes rally URL, resolves name + id. `send_old_comments` (default off) posts backlog on first scrape. `include_rally_title` — `Off`/`On`/`Contextual`. `list` `status` (default `active`) filters by deadline: `active` (unknown or ahead), `inactive` (past), or `all`; long lists split across multiple messages. All commands gated to allowlist of Discord user ids.
 
 ## Stack
 
