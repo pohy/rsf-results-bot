@@ -75,7 +75,7 @@ export interface StageKey {
   stageNo: number;
 }
 
-const stageUrl = (k: StageKey): string =>
+export const stageUrl = (k: StageKey): string =>
   // Omitting the site's `cg` (car group) param returns the full field: car groups
   // are nested subsets of the overall results, so no-cg == the union of all groups.
   `${BASE}/rbr/rally_online.php?centerbox=rally_results_stres.php` +

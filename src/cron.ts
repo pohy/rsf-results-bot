@@ -13,7 +13,7 @@ import {
 } from "./persist.js";
 import { selectPollable } from "./poll.js";
 import { fetchRallyList } from "./rallies.js";
-import { fetchAllStages, type RallyKey } from "./results.js";
+import { fetchAllStages, type RallyKey, stageUrl } from "./results.js";
 import { ensureSession } from "./session.js";
 import { completeBackfill, listWatched, updateDeadlines } from "./watched.js";
 
@@ -173,7 +173,10 @@ function formatMessage(comments: UndeliveredComment[], includeTitle: boolean): F
         const candidateLines: string[] = [];
         if (!rallyAdded && includeTitle) { candidateLines.push(`**${rallyName}**`); }
         if (!stageAdded) {
-          candidateLines.push(`> S${stageNo}${d.stageTitle ? ` - ${d.stageTitle}` : ""}`);
+          // Stage header links to the stage's page on the RSF site. Discord masked
+          // link [text](url); the raw length still counts against DISCORD_LIMIT.
+          const label = `S${stageNo}${d.stageTitle ? ` - ${d.stageTitle}` : ""}`;
+          candidateLines.push(`> [${label}](${stageUrl({ rallyId: d.rallyId, stageNo })})`);
         }
         candidateLines.push(driverLine);
         const addText = candidateLines.reduce((n, l) => n + l.length, 0);
