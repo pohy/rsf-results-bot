@@ -23,7 +23,24 @@ const DbEnvSchema = z.object({
   SQLITE_PATH: z.string().default("./data/dev.sqlite"),
 });
 
-const EnvSchema = DbEnvSchema.extend({
+// Proxy rotation config for rsfFetch (src/client.ts). Split out because
+// client.ts is reachable from the Discord bot too (via results.ts, for public
+// rally pages) which doesn't load RSF login creds — loadEnv() would force it
+// to require RSF_USER/RSF_PASS it has no use for.
+const ProxyEnvSchema = z.object({
+  // Last resort for when RSF has banned our IP: route requests through a
+  // rotating free proxy (see src/proxy.ts). Off by default — free proxies are
+  // unreliable and login creds shouldn't cross one unless the direct IP is
+  // already blocked anyway.
+  RSF_PROXY_ENABLED: z
+    .enum(["true", "false"])
+    .transform((v) => v === "true")
+    .default(false),
+  // How many dead proxies rsfFetch rotates through before giving up on a request.
+  RSF_PROXY_MAX_ATTEMPTS: z.coerce.number().int().positive().default(4),
+});
+
+const EnvSchema = DbEnvSchema.extend(ProxyEnvSchema.shape).extend({
   RSF_USER: z.string().min(1),
   RSF_PASS: z.string().min(1),
   RSF_USER_ID: z.coerce.number().int().positive(),
@@ -73,6 +90,7 @@ const CronEnvSchema = EnvSchema.extend({
 });
 
 export type DbEnv = z.infer<typeof DbEnvSchema>;
+export type ProxyEnv = z.infer<typeof ProxyEnvSchema>;
 export type Env = z.infer<typeof EnvSchema>;
 export type BotEnv = z.infer<typeof BotEnvSchema>;
 export type CronEnv = z.infer<typeof CronEnvSchema>;
@@ -87,5 +105,6 @@ function parseOrThrow<T>(schema: z.ZodType<T>): T {
 
 export const loadEnv = (): Env => parseOrThrow(EnvSchema);
 export const loadDbEnv = (): DbEnv => parseOrThrow(DbEnvSchema);
+export const loadProxyEnv = (): ProxyEnv => parseOrThrow(ProxyEnvSchema);
 export const loadBotEnv = (): BotEnv => parseOrThrow(BotEnvSchema);
 export const loadCronEnv = (): CronEnv => parseOrThrow(CronEnvSchema);
