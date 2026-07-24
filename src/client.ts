@@ -61,6 +61,24 @@ export interface RsfResponse {
 // break-glass switch. See src/proxy.ts for where the list comes from.
 const { RSF_PROXY_ENABLED, RSF_PROXY_MAX_ATTEMPTS } = loadProxyEnv();
 
+// Some entries in the free proxy list aren't real proxies — just a random
+// host answering with its own webserver's error page (400/415/502/504/...)
+// instead of forwarding to RSF. That's a real HTTP response, not a network
+// failure, so it wouldn't otherwise trigger a rotation. RSF itself only ever
+// returns 200 (real HTML page, even for an IP-block message — auth.ts parses
+// those from the body), 302 (login-success redirect), or 429 (rate-limit,
+// handled by results.ts's own backoff) for the endpoints rsfFetch is used on
+// — anything else is the proxy's own failure, never RSF's.
+function isBogusProxyResponse(res: Response): boolean {
+  if (res.status === 429 || (res.status >= 300 && res.status < 400)) {
+    return false;
+  }
+  if (res.status >= 200 && res.status < 300) {
+    return !(res.headers.get("content-type") ?? "").includes("text/html");
+  }
+  return true;
+}
+
 export async function rsfFetch(
   jar: CookieJar,
   url: string,
@@ -90,9 +108,10 @@ export async function rsfFetch(
   }
 
   // Free proxies are frequently dead; rotate through a few before giving up.
-  // Only network-level failures (unreachable/timeout) trigger a retry — a
-  // real HTTP response (even a 403) is returned as-is so callers that key off
-  // status codes (e.g. auth.ts's 302-on-success check) keep working.
+  // Network-level failures (unreachable/timeout) and bogus non-RSF responses
+  // (see isBogusProxyResponse) trigger a retry — any other real HTTP response
+  // (even a 403) is returned as-is so callers that key off status codes
+  // (e.g. auth.ts's 302-on-success check) keep working.
   const tried = new Set<string>();
   let lastErr: unknown;
   for (let attempt = 0; attempt < RSF_PROXY_MAX_ATTEMPTS; attempt++) {
@@ -106,6 +125,17 @@ export async function rsfFetch(
     tried.add(proxy);
     try {
       const res = await doFetch(proxy);
+      if (isBogusProxyResponse(res)) {
+        const body = await res
+          .clone()
+          .text()
+          .catch(() => "<unreadable>");
+        logger.warn(
+          `proxy ${proxy} returned bogus response (status ${res.status}) for ${url}: ${body.slice(0, 300)}`,
+        );
+        lastErr = new Error(`proxy ${proxy} returned a bogus (non-RSF) response`);
+        continue;
+      }
       return { jar: updateJarFromResponse(jar, res.headers), res };
     } catch (err) {
       lastErr = err;
